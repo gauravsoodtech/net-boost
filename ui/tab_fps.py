@@ -46,7 +46,19 @@ class _ToggleRow(QWidget):
             layout.addWidget(note_lbl)
 
         layout.addStretch()
+
+        self._status_badge = QLabel("● Active")
+        self._status_badge.setStyleSheet(
+            "color: #4caf50; font-size: 10px; font-weight: 700;"
+            " background: transparent; border: none;"
+        )
+        self._status_badge.setVisible(False)
+        layout.addWidget(self._status_badge)
+
         self.setStyleSheet("background: transparent;")
+
+    def set_applied(self, applied: bool) -> None:
+        self._status_badge.setVisible(applied)
 
 
 def _make_group_with_rows(title: str, rows_spec: list) -> tuple[QGroupBox, dict]:
@@ -80,11 +92,12 @@ class TabFps(QWidget):
     settings_applied(dict)  — emitted when user clicks "Apply FPS Boost"
     """
 
-    settings_applied = pyqtSignal(dict)
+    settings_applied  = pyqtSignal(dict)
+    settings_restored = pyqtSignal()
 
     _CPU_ROWS = [
-        ("ultimate_perf_plan",   "Ultimate Performance Power Plan",           "",               ""),
-        ("pcore_affinity",       "P-Core Affinity (i7-13650HX: Cores 0-11)",  "",
+        ("power_plan",           "Ultimate Performance Power Plan",           "",               ""),
+        ("pcores_affinity",      "P-Core Affinity (i7-13650HX: Cores 0-11)",  "",
          "Restricts game processes to high-performance P-Cores only, avoiding E-Core scheduling overhead."),
         ("timer_resolution",     "Force 0.5ms Timer Resolution",              "Default: 15.6ms",""),
     ]
@@ -96,10 +109,10 @@ class TabFps(QWidget):
     ]
 
     _WIN_ROWS = [
-        ("disable_game_dvr",     "Disable Xbox Game DVR",                     "", ""),
-        ("disable_fullscreen_opt","Disable Fullscreen Optimizations",          "", ""),
-        ("disable_visual_fx",    "Disable Visual Effects & Animations",       "", ""),
-        ("disable_sysmain",      "Disable SysMain (Superfetch)",               "", ""),
+        ("game_dvr_off",         "Disable Xbox Game DVR",                     "", ""),
+        ("fullscreen_opt_off",   "Disable Fullscreen Optimizations",          "", ""),
+        ("visual_effects_off",   "Disable Visual Effects & Animations",       "", ""),
+        ("sysmain_off",          "Disable SysMain (Superfetch)",               "", ""),
     ]
 
     def __init__(self, parent=None):
@@ -145,23 +158,37 @@ class TabFps(QWidget):
             self._toggle_rows.update(toggle_map)
             layout.addWidget(group)
 
-        # ── Apply button ─────────────────────────────────────────────────────
+        # ── Action buttons ────────────────────────────────────────────────────
         self._apply_btn = QPushButton("Apply FPS Boost")
         self._apply_btn.setObjectName("primaryButton")
         self._apply_btn.setMinimumHeight(44)
         self._apply_btn.setMinimumWidth(200)
         self._apply_btn.clicked.connect(self._on_apply)
 
+        self._restore_btn = QPushButton("Restore Defaults")
+        self._restore_btn.setObjectName("dangerButton")
+        self._restore_btn.setMinimumHeight(44)
+        self._restore_btn.clicked.connect(self._on_restore)
+
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
         btn_row.addStretch()
+        btn_row.addWidget(self._restore_btn)
         btn_row.addWidget(self._apply_btn)
         layout.addLayout(btn_row)
         layout.addStretch()
+
+        # Default all toggles to ON
+        self.set_settings({key: True for key in self._toggle_rows})
 
     # ---------------------------------------------------------- Internals ------
 
     def _on_apply(self) -> None:
         self.settings_applied.emit(self.get_settings())
+
+    def _on_restore(self) -> None:
+        self.settings_restored.emit()
+        self.set_settings({key: True for key in self._toggle_rows})
 
     # ---------------------------------------------------------- Public API ------
 
@@ -174,6 +201,16 @@ class TabFps(QWidget):
         for key, row in self._toggle_rows.items():
             if key in settings:
                 row.switch.setChecked(bool(settings[key]))
+
+    def mark_applied(self, settings: dict) -> None:
+        """Show ● Active badge on each toggle that was ON when Apply was clicked."""
+        for key, row in self._toggle_rows.items():
+            row.set_applied(bool(settings.get(key)))
+
+    def clear_applied(self) -> None:
+        """Remove all Active badges (called on Restore)."""
+        for row in self._toggle_rows.values():
+            row.set_applied(False)
 
     def show_apply_success(self) -> None:
         self._apply_btn.setObjectName("successButton")

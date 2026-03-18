@@ -45,7 +45,19 @@ class _ToggleRow(QWidget):
             layout.addWidget(badge_lbl)
 
         layout.addStretch()
+
+        self._status_badge = QLabel("● Active")
+        self._status_badge.setStyleSheet(
+            "color: #4caf50; font-size: 10px; font-weight: 700;"
+            " background: transparent; border: none;"
+        )
+        self._status_badge.setVisible(False)
+        layout.addWidget(self._status_badge)
+
         self.setStyleSheet("background: transparent;")
+
+    def set_applied(self, applied: bool) -> None:
+        self._status_badge.setVisible(applied)
 
 
 # ── Wi-Fi Tab ─────────────────────────────────────────────────────────────────
@@ -203,15 +215,17 @@ class TabWifi(QWidget):
         layout.addLayout(btn_row)
         layout.addStretch()
 
+        # Default all toggles to ON
+        self.set_settings({key: True for key in self._toggle_rows})
+
     # ---------------------------------------------------------- Internals ------
 
     def _on_apply(self) -> None:
         self.settings_applied.emit(self.get_settings())
 
     def _on_restore(self) -> None:
-        defaults = {key: False for key in self._toggle_rows}
-        self.set_settings(defaults)
         self.settings_restored.emit()
+        self.set_settings({key: True for key in self._toggle_rows})
 
     # ---------------------------------------------------------- Public API ------
 
@@ -233,6 +247,16 @@ class TabWifi(QWidget):
 
     def set_latency_after(self, ms: float) -> None:
         self._after_val.setText(f"{ms:.1f} ms")
+
+    def mark_applied(self, settings: dict) -> None:
+        """Show ● Active badge on each toggle that was ON when Apply was clicked."""
+        for key, row in self._toggle_rows.items():
+            row.set_applied(bool(settings.get(key)))
+
+    def clear_applied(self) -> None:
+        """Remove all Active badges (called on Restore Defaults)."""
+        for row in self._toggle_rows.values():
+            row.set_applied(False)
 
     def show_apply_success(self) -> None:
         self._apply_btn.setObjectName("successButton")

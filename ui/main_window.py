@@ -30,6 +30,8 @@ class MainWindow(QMainWindow):
         self._total_count = 0
         self._current_game = None
         self._game_mode_active = False
+        self._game_mode_applied = False   # True only if Game Mode itself applied changes
+        self._game_mode_pending = False   # latest value for debounce
         self._ram_freed_mb = 0
 
         # Optimizer instances (lazy-created when needed)
@@ -51,6 +53,12 @@ class MainWindow(QMainWindow):
         self._battery_timer = QTimer(self)
         self._battery_timer.timeout.connect(self._check_battery)
         self._battery_timer.start(30000)  # every 30s
+
+        # Debounce timer for Game Mode toggle — collapses rapid clicks into one action
+        self._game_mode_debounce = QTimer(self)
+        self._game_mode_debounce.setSingleShot(True)
+        self._game_mode_debounce.setInterval(300)
+        self._game_mode_debounce.timeout.connect(self._apply_game_mode_toggle)
 
     # ------------------------------------------------------------------ UI setup
 
@@ -130,7 +138,9 @@ class MainWindow(QMainWindow):
         self.tab_wifi.settings_applied.connect(self._on_wifi_apply)
         self.tab_wifi.settings_restored.connect(self._on_wifi_restore)
         self.tab_fps.settings_applied.connect(self._on_fps_apply)
+        self.tab_fps.settings_restored.connect(self._on_fps_restore)
         self.tab_optimizer.settings_applied.connect(self._on_optimizer_apply)
+        self.tab_optimizer.settings_restored.connect(self._on_optimizer_restore)
         self.tab_optimizer.ram_optimize_requested.connect(self._on_ram_optimize)
         self.tab_bandwidth.refresh_requested.connect(self._on_bandwidth_refresh)
         self.tab_bandwidth.priority_change_requested.connect(self._on_priority_change)
@@ -197,48 +207,52 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(bool)
     def _on_game_mode_toggled(self, enabled: bool):
+        # Store latest value and (re)start the debounce timer — rapid clicks collapse into one
+        self._game_mode_pending = enabled
+        self._game_mode_debounce.start()
+
+    def _apply_game_mode_toggle(self):
+        """Called once after the debounce timer fires."""
+        enabled = self._game_mode_pending
         self._game_mode_active = enabled
         if enabled:
             self._set_status("Game Mode activated")
-            if self._current_game:
-                self._activate_game_mode(self._current_game)
+            self._activate_game_mode(self._current_game)
         else:
             self._set_status("Game Mode deactivated")
             self._deactivate_game_mode()
 
     def _activate_game_mode(self, exe_name: str):
-        """Apply all enabled optimizations for the detected game."""
-        logger.info(f"Activating game mode for {exe_name}")
-        # Wi-Fi
+        """Apply all tab settings when Game Mode is enabled."""
+        logger.info(f"Activating game mode" + (f" for {exe_name}" if exe_name else ""))
         try:
-            wifi_settings = self.tab_wifi.get_settings()
-            if wifi_settings.get("enabled"):
-                self._apply_wifi(wifi_settings)
+            self._apply_wifi(self.tab_wifi.get_settings())
         except Exception as e:
             logger.warning(f"Wi-Fi game mode apply failed: {e}")
-        # FPS
         try:
-            fps_settings = self.tab_fps.get_settings()
-            if fps_settings.get("enabled"):
-                self._apply_fps(fps_settings)
+            self._apply_fps(self.tab_fps.get_settings())
         except Exception as e:
             logger.warning(f"FPS game mode apply failed: {e}")
-        # Network/DNS
         try:
-            net_settings = self.tab_optimizer.get_settings()
-            if net_settings.get("enabled"):
-                self._apply_optimizer(net_settings)
+            self._apply_optimizer(self.tab_optimizer.get_settings())
         except Exception as e:
             logger.warning(f"Optimizer game mode apply failed: {e}")
+        self._game_mode_applied = True
+        self._toast.show_message("Game Mode: all optimizations applied", "success")
 
     def _deactivate_game_mode(self):
-        """Restore all settings when game exits."""
+        """Restore settings only if Game Mode was the one that applied them."""
+        if not self._game_mode_applied:
+            logger.info("Game Mode deactivated — no Game Mode changes to restore")
+            return
         logger.info("Deactivating game mode, restoring settings")
         if self.state_guard:
             try:
                 self.state_guard.restore_all()
+                self._game_mode_applied = False
             except Exception as e:
                 logger.error(f"restore_all failed: {e}")
+        self._toast.show_message("Game Mode: settings restored", "error")
 
     # ------------------------------------------------------------------ Wi-Fi
 
@@ -246,6 +260,8 @@ class MainWindow(QMainWindow):
     def _on_wifi_apply(self, settings: dict):
         try:
             self._apply_wifi(settings)
+            self.tab_wifi.set_settings(settings)
+            self.tab_wifi.mark_applied(settings)
             self.tab_wifi.show_apply_success()
             self._toast.show_message("Wi-Fi optimizations applied", "success")
         except Exception:
@@ -268,6 +284,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot()
     def _on_wifi_restore(self):
+        self.tab_wifi.clear_applied()
         try:
             if self._wifi_optimizer and self.state_guard:
                 state = self.state_guard.get_state()
@@ -284,6 +301,8 @@ class MainWindow(QMainWindow):
     def _on_fps_apply(self, settings: dict):
         try:
             self._apply_fps(settings)
+            self.tab_fps.set_settings(settings)
+            self.tab_fps.mark_applied(settings)
             self.tab_fps.show_apply_success()
             self._toast.show_message("FPS optimizations applied", "success")
         except Exception:
@@ -314,12 +333,27 @@ class MainWindow(QMainWindow):
             self._set_status(f"FPS error: {e}")
             raise
 
+    @pyqtSlot()
+    def _on_fps_restore(self):
+        self.tab_fps.clear_applied()
+        try:
+            if self._fps_booster and self.state_guard:
+                state = self.state_guard.get_state()
+                backup = state.get("fps_backup", {})
+                if backup:
+                    self._fps_booster.restore(backup)
+                    self._set_status("FPS settings restored")
+        except Exception as e:
+            logger.error(f"FPS restore error: {e}")
+
     # ------------------------------------------------------------------ Optimizer (TCP/DNS/Services)
 
     @pyqtSlot(dict)
     def _on_optimizer_apply(self, settings: dict):
         try:
             self._apply_optimizer(settings)
+            self.tab_optimizer.set_settings(settings)
+            self.tab_optimizer.mark_applied(settings)
             self.tab_optimizer.show_apply_success()
             self._toast.show_message("Network optimizations applied", "success")
         except Exception:
@@ -330,12 +364,14 @@ class MainWindow(QMainWindow):
         errors = []
 
         # TCP
-        if settings.get("nagle_off") or settings.get("tcp_nodelay") or settings.get("window_scaling"):
+        if settings.get("tcp_no_delay") or settings.get("tcp_ack_freq") or settings.get("tcp_window_scale"):
             try:
                 from core.network_optimizer import NetworkOptimizer
                 if self._network_optimizer is None:
                     self._network_optimizer = NetworkOptimizer()
-                backup = self._network_optimizer.apply(settings)
+                net_settings = dict(settings)
+                net_settings["window_scaling"] = settings.get("tcp_window_scale")
+                backup = self._network_optimizer.apply(net_settings)
                 if self.state_guard:
                     self.state_guard.record_tcp_backup(backup)
             except Exception as e:
@@ -343,15 +379,23 @@ class MainWindow(QMainWindow):
                 errors.append("TCP")
 
         # DNS
-        if settings.get("dns_enabled") and settings.get("dns_provider"):
+        if settings.get("switch_dns") and settings.get("dns_provider"):
             try:
                 from core.dns_switcher import DnsSwitcher
                 if self._dns_switcher is None:
                     self._dns_switcher = DnsSwitcher()
+                _dns_name_map = {
+                    "Cloudflare 1.1.1.1": "cloudflare",
+                    "Google 8.8.8.8":     "google",
+                    "Quad9 9.9.9.9":      "quad9",
+                    "Custom":             "custom",
+                }
+                provider_key = _dns_name_map.get(settings["dns_provider"],
+                                                  settings["dns_provider"].lower())
                 backup = self._dns_switcher.apply(
-                    settings["dns_provider"],
-                    custom_primary=settings.get("custom_dns_primary"),
-                    custom_secondary=settings.get("custom_dns_secondary"),
+                    provider_key,
+                    custom_primary=settings.get("dns_primary"),
+                    custom_secondary=settings.get("dns_secondary"),
                 )
                 if self.state_guard:
                     self.state_guard.record_dns_backup(backup)
@@ -360,7 +404,7 @@ class MainWindow(QMainWindow):
                 errors.append("DNS")
 
         # Background killer
-        if settings.get("pause_wupdate") or settings.get("pause_onedrive") or settings.get("pause_bits"):
+        if settings.get("pause_windows_update") or settings.get("pause_onedrive") or settings.get("pause_bits"):
             try:
                 from core.background_killer import BackgroundKiller
                 if self._background_killer is None:
@@ -381,6 +425,17 @@ class MainWindow(QMainWindow):
             raise RuntimeError(f"Optimizer errors: {', '.join(errors)}")
         else:
             self._set_status("All network optimizations applied")
+
+    @pyqtSlot()
+    def _on_optimizer_restore(self):
+        self.tab_optimizer.clear_applied()
+        try:
+            if self.state_guard:
+                self.state_guard.restore_all()
+                self._set_status("Network settings restored")
+                self._toast.show_message("Network settings restored", "success")
+        except Exception as e:
+            logger.error(f"Optimizer restore error: {e}")
 
     # ------------------------------------------------------------------ RAM
 

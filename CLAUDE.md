@@ -163,6 +163,83 @@ def show_apply_error(self):
 - `_apply_wifi()` and `_apply_fps()` re-raise after logging so the handler knows to show error state
 - `_apply_optimizer()` raises `RuntimeError` if its `errors` list is non-empty
 
+## Applied Status Badges
+
+Each `_ToggleRow` in all three optimizer tabs has a hidden `● Active` green badge (QLabel) that appears after a successful Apply:
+
+```python
+# On each _ToggleRow:
+def set_applied(self, applied: bool) -> None:
+    self._status_badge.setVisible(applied)
+
+# On each tab:
+def mark_applied(self, settings: dict) -> None:
+    for key, row in self._toggle_rows.items():
+        row.set_applied(bool(settings.get(key)))
+
+def clear_applied(self) -> None:
+    for row in self._toggle_rows.values():
+        row.set_applied(False)
+```
+
+- `mark_applied(settings)` is called in `MainWindow` after every successful apply
+- `clear_applied()` is called after Restore Defaults
+
+## Restore Defaults
+
+All three optimizer tabs (Wi-Fi, FPS Boost, Optimizer) have a "Restore Defaults" button that:
+1. Emits `settings_restored` signal → `MainWindow` calls the core restore method
+2. Calls `clear_applied()` to remove Active badges
+3. Resets all toggles back to ON (ready to apply again)
+
+Key: Restore resets toggles to ON, not OFF — "restore" means undo system changes, not disable the UI.
+
+## Game Mode
+
+Game Mode (Dashboard toggle) applies all tab settings automatically when enabled:
+- `_activate_game_mode()` calls `_apply_wifi`, `_apply_fps`, `_apply_optimizer` with current tab settings
+- Sets `_game_mode_applied = True` flag
+- `_deactivate_game_mode()` only calls `restore_all()` if `_game_mode_applied` is True — **does not touch manually applied settings**
+- Toggle is debounced with a 300ms `QTimer` (`_game_mode_debounce`) to collapse rapid clicks
+
+## DNS Provider Mapping
+
+`tab_optimizer.py` combo box items use display names (`"Cloudflare 1.1.1.1"`) but `dns_switcher.apply()` expects short keys (`"cloudflare"`). Translation happens in `MainWindow._apply_optimizer()`:
+
+```python
+_dns_name_map = {
+    "Cloudflare 1.1.1.1": "cloudflare",
+    "Google 8.8.8.8":     "google",
+    "Quad9 9.9.9.9":      "quad9",
+    "Custom":             "custom",
+}
+provider_key = _dns_name_map.get(settings["dns_provider"], settings["dns_provider"].lower())
+```
+
+Custom DNS fields are passed as `dns_primary` / `dns_secondary` (not `custom_dns_primary/secondary`).
+
+## Tab Key Name Mapping (FPS Booster)
+
+UI toggle keys in `tab_fps.py` must match what `core/fps_booster.apply()` checks:
+
+| UI key (`_toggle_rows`) | `fps_booster.apply()` key |
+|---|---|
+| `power_plan` | `power_plan` |
+| `pcores_affinity` | `pcores_affinity` |
+| `timer_resolution` | `timer_resolution` |
+| `game_dvr_off` | `game_dvr_off` |
+| `sysmain_off` | `sysmain_off` |
+| `visual_effects_off` | `visual_effects_off` |
+| `fullscreen_opt_off` | `fullscreen_opt_off` |
+
+## Tab Key Name Mapping (Optimizer)
+
+`tab_optimizer.py` key → what `MainWindow._apply_optimizer()` checks:
+- `tcp_no_delay`, `tcp_ack_freq`, `tcp_window_scale` → triggers `NetworkOptimizer`
+- `tcp_window_scale` is translated to `window_scaling` before passing to `NetworkOptimizer`
+- `switch_dns` → triggers `DnsSwitcher`
+- `pause_windows_update`, `pause_onedrive`, `pause_bits` → triggers `BackgroundKiller`
+
 ## StatusToast Widget
 
 `ui/widgets/status_toast.py` — floating top-right overlay for apply feedback.
@@ -181,3 +258,5 @@ Key implementation notes:
 - Never call UI methods directly from `PingMonitor` or `ProcessWatcher` threads — always use Qt signals
 - Changing a widget's `objectName` at runtime requires `unpolish(widget)` + `polish(widget)` to force QSS re-evaluation
 - `QPropertyAnimation(widget, b"windowOpacity")` only works for top-level windows — use `QGraphicsOpacityEffect` for child widget opacity animation
+- `ToggleSwitch.mouseReleaseEvent` must call only `super().mouseReleaseEvent(event)` — do NOT manually call `setChecked()` before super, or the toggle double-fires and cancels itself
+- `_deactivate_game_mode()` must guard on `_game_mode_applied` flag — calling `restore_all()` unconditionally wipes manually applied settings

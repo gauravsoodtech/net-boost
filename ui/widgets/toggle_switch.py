@@ -72,8 +72,6 @@ class ToggleSwitch(QAbstractButton):
         return QSize(50, 26)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
-        if event.button() == Qt.LeftButton:
-            self.setChecked(not self.isChecked())
         super().mouseReleaseEvent(event)
 
     def paintEvent(self, event) -> None:  # noqa: N802

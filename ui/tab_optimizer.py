@@ -31,7 +31,19 @@ class _ToggleRow(QWidget):
         lbl.setStyleSheet("background: transparent; border: none; color: #e0e0e0;")
         layout.addWidget(lbl)
         layout.addStretch()
+
+        self._status_badge = QLabel("● Active")
+        self._status_badge.setStyleSheet(
+            "color: #4caf50; font-size: 10px; font-weight: 700;"
+            " background: transparent; border: none;"
+        )
+        self._status_badge.setVisible(False)
+        layout.addWidget(self._status_badge)
+
         self.setStyleSheet("background: transparent;")
+
+    def set_applied(self, applied: bool) -> None:
+        self._status_badge.setVisible(applied)
 
 
 # ── Network Optimizer Tab ─────────────────────────────────────────────────────
@@ -47,6 +59,7 @@ class TabOptimizer(QWidget):
     """
 
     settings_applied      = pyqtSignal(dict)
+    settings_restored     = pyqtSignal()
     ram_optimize_requested = pyqtSignal()
 
     _DNS_PROVIDERS = [
@@ -197,13 +210,27 @@ class TabOptimizer(QWidget):
         self._apply_btn.setMinimumWidth(220)
         self._apply_btn.clicked.connect(self._on_apply)
 
+        self._restore_btn = QPushButton("Restore Defaults")
+        self._restore_btn.setObjectName("dangerButton")
+        self._restore_btn.setMinimumHeight(44)
+        self._restore_btn.clicked.connect(self._on_restore)
+
         btn_row = QHBoxLayout()
+        btn_row.setSpacing(12)
         btn_row.addStretch()
+        btn_row.addWidget(self._restore_btn)
         btn_row.addWidget(self._apply_btn)
         layout.addLayout(btn_row)
         layout.addStretch()
 
+        # Default all toggles to ON
+        self.set_settings({key: True for key in self._toggle_rows})
+
     # ---------------------------------------------------------- Internals ------
+
+    def _on_restore(self) -> None:
+        self.settings_restored.emit()
+        self.set_settings({key: True for key in self._toggle_rows})
 
     def _on_dns_provider_changed(self, index: int) -> None:
         is_custom = (self._dns_combo.currentText() == "Custom")
@@ -252,6 +279,16 @@ class TabOptimizer(QWidget):
             self._ram_result_label.setText(f"Freed {mb / 1024:.2f} GB")
         else:
             self._ram_result_label.setText(f"Freed {mb} MB")
+
+    def mark_applied(self, settings: dict) -> None:
+        """Show ● Active badge on each toggle that was ON when Apply was clicked."""
+        for key, row in self._toggle_rows.items():
+            row.set_applied(bool(settings.get(key)))
+
+    def clear_applied(self) -> None:
+        """Remove all Active badges."""
+        for row in self._toggle_rows.values():
+            row.set_applied(False)
 
     def show_apply_success(self) -> None:
         self._apply_btn.setObjectName("successButton")
