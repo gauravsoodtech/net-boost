@@ -45,6 +45,7 @@ class MainWindow(QMainWindow):
         self._setup_ui()
         self._connect_signals()
         self._check_battery()
+        self._init_toast()
 
         # Battery check timer
         self._battery_timer = QTimer(self)
@@ -117,6 +118,10 @@ class MainWindow(QMainWindow):
             active = self.profile_manager.get_active().get("name", "Default") if profiles else "Default"
             self.tab_profiles.set_profiles(profiles, active)
             self.tab_dashboard.set_active_profile(active)
+
+    def _init_toast(self):
+        from ui.widgets.status_toast import StatusToast
+        self._toast = StatusToast(self)
 
     def _connect_signals(self):
         """Wire UI signals to handler methods."""
@@ -239,7 +244,13 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(dict)
     def _on_wifi_apply(self, settings: dict):
-        self._apply_wifi(settings)
+        try:
+            self._apply_wifi(settings)
+            self.tab_wifi.show_apply_success()
+            self._toast.show_message("Wi-Fi optimizations applied", "success")
+        except Exception:
+            self.tab_wifi.show_apply_error()
+            self._toast.show_message("Wi-Fi apply failed", "error")
 
     def _apply_wifi(self, settings: dict):
         try:
@@ -253,6 +264,7 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Wi-Fi apply error: {e}")
             self._set_status(f"Wi-Fi error: {e}")
+            raise
 
     @pyqtSlot()
     def _on_wifi_restore(self):
@@ -270,7 +282,13 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(dict)
     def _on_fps_apply(self, settings: dict):
-        self._apply_fps(settings)
+        try:
+            self._apply_fps(settings)
+            self.tab_fps.show_apply_success()
+            self._toast.show_message("FPS optimizations applied", "success")
+        except Exception:
+            self.tab_fps.show_apply_error()
+            self._toast.show_message("FPS apply failed", "error")
 
     def _apply_fps(self, settings: dict):
         try:
@@ -294,12 +312,19 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"FPS apply error: {e}")
             self._set_status(f"FPS error: {e}")
+            raise
 
     # ------------------------------------------------------------------ Optimizer (TCP/DNS/Services)
 
     @pyqtSlot(dict)
     def _on_optimizer_apply(self, settings: dict):
-        self._apply_optimizer(settings)
+        try:
+            self._apply_optimizer(settings)
+            self.tab_optimizer.show_apply_success()
+            self._toast.show_message("Network optimizations applied", "success")
+        except Exception:
+            self.tab_optimizer.show_apply_error()
+            self._toast.show_message("Optimizer apply failed", "error")
 
     def _apply_optimizer(self, settings: dict):
         errors = []
@@ -353,6 +378,7 @@ class MainWindow(QMainWindow):
 
         if errors:
             self._set_status(f"Applied with errors: {', '.join(errors)}")
+            raise RuntimeError(f"Optimizer errors: {', '.join(errors)}")
         else:
             self._set_status("All network optimizations applied")
 
@@ -551,6 +577,11 @@ class MainWindow(QMainWindow):
 
     def _set_status(self, msg: str):
         self._status_label.setText(msg)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if hasattr(self, "_toast"):
+            self._toast._reposition()
 
     def closeEvent(self, event: QCloseEvent):
         """Hide to tray instead of closing."""

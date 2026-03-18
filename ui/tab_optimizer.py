@@ -8,7 +8,7 @@ from PyQt5.QtWidgets import (
     QLabel, QPushButton, QGroupBox, QFrame,
     QScrollArea, QComboBox, QLineEdit, QSizePolicy,
 )
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 
 from .widgets.toggle_switch import ToggleSwitch
 
@@ -252,3 +252,23 @@ class TabOptimizer(QWidget):
             self._ram_result_label.setText(f"Freed {mb / 1024:.2f} GB")
         else:
             self._ram_result_label.setText(f"Freed {mb} MB")
+
+    def show_apply_success(self) -> None:
+        self._apply_btn.setObjectName("successButton")
+        self._apply_btn.setText("\u2713 Applied!")
+        self._apply_btn.style().unpolish(self._apply_btn)
+        self._apply_btn.style().polish(self._apply_btn)
+        QTimer.singleShot(2500, self._reset_apply_btn)
+
+    def show_apply_error(self) -> None:
+        self._apply_btn.setObjectName("dangerButton")
+        self._apply_btn.setText("\u2717 Error")
+        self._apply_btn.style().unpolish(self._apply_btn)
+        self._apply_btn.style().polish(self._apply_btn)
+        QTimer.singleShot(2500, self._reset_apply_btn)
+
+    def _reset_apply_btn(self) -> None:
+        self._apply_btn.setObjectName("primaryButton")
+        self._apply_btn.setText("Apply All Optimizations")
+        self._apply_btn.style().unpolish(self._apply_btn)
+        self._apply_btn.style().polish(self._apply_btn)

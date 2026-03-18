@@ -140,6 +140,38 @@ Rename `dist/main.exe` → `NetBoost.exe`.
 
 ---
 
+## UI Feedback Pattern — Apply Button State Machine
+
+Every tab with an "Apply" button implements a three-state visual cycle:
+
+```python
+# In each tab (tab_optimizer.py, tab_wifi.py, tab_fps.py):
+def show_apply_success(self):
+    self._apply_btn.setObjectName("successButton")
+    self._apply_btn.setText("✓ Applied!")
+    self._apply_btn.style().unpolish(self._apply_btn)
+    self._apply_btn.style().polish(self._apply_btn)
+    QTimer.singleShot(2500, self._reset_apply_btn)
+
+def show_apply_error(self):
+    self._apply_btn.setObjectName("dangerButton")
+    # ... same pattern, reverts after 2500ms
+```
+
+- `unpolish` + `polish` is **required** — Qt caches resolved QSS per widget; changing `objectName` at runtime does not invalidate the cache without this pair
+- `_on_*_apply()` handlers in `MainWindow` wrap `_apply_*()` in try/except and call the appropriate tab method
+- `_apply_wifi()` and `_apply_fps()` re-raise after logging so the handler knows to show error state
+- `_apply_optimizer()` raises `RuntimeError` if its `errors` list is non-empty
+
+## StatusToast Widget
+
+`ui/widgets/status_toast.py` — floating top-right overlay for apply feedback.
+
+Key implementation notes:
+- Uses `QGraphicsOpacityEffect` + `QPropertyAnimation` for fade — **not** `windowOpacity` (only works on top-level windows, has no effect on child widgets)
+- Two separate animation objects (`_in_anim`, `_out_anim`) so `finished.connect(self.hide)` is wired exactly once — prevents accumulating connections if `show_message()` is called while a toast is active
+- `MainWindow.resizeEvent` calls `self._toast._reposition()` to keep it anchored top-right when the window is resized
+
 ## Common Pitfalls
 
 - `wuauserv` on Windows 11 often doesn't support PAUSE → `BackgroundKiller` falls back to Stop
@@ -147,3 +179,5 @@ Rename `dist/main.exe` → `NetBoost.exe`.
 - DSCP marking is ignored by most home routers — the service suspension is the actual bandwidth win
 - PyQt5 5.15.11 is the last version with Python 3.13 wheels — do not upgrade to PyQt6 without testing all signals
 - Never call UI methods directly from `PingMonitor` or `ProcessWatcher` threads — always use Qt signals
+- Changing a widget's `objectName` at runtime requires `unpolish(widget)` + `polish(widget)` to force QSS re-evaluation
+- `QPropertyAnimation(widget, b"windowOpacity")` only works for top-level windows — use `QGraphicsOpacityEffect` for child widget opacity animation

@@ -73,6 +73,11 @@ The Intel AX211 aggressively power-saves and background-scans by default, causin
 ### 🛡️ Crash-Safe
 All changes tracked in an atomic state file. If NetBoost crashes mid-session, it **automatically restores your original settings** on next launch.
 
+### ✨ Visual Feedback
+- Apply buttons flash **green ✓** on success and **red ✗** on error, then revert — no silent failures
+- Floating toast notifications appear top-right for every apply action
+- Polished dark theme: gradient buttons, tab underline indicator, focus glows on inputs, thin rounded scrollbars
+
 ---
 
 ## Screenshots
@@ -173,7 +178,8 @@ netboost/
 │   └── widgets/
 │       ├── ping_graph.py      # PyQtGraph rolling graph
 │       ├── toggle_switch.py   # Animated iOS-style toggle
-│       └── status_led.py      # Green/yellow/red LED
+│       ├── status_led.py      # Green/yellow/red LED
+│       └── status_toast.py    # Floating fade-in/out toast notification
 ├── resources/styles/
 │   └── dark_theme.qss         # Dark gaming UI theme
 └── tests/
