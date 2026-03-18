@@ -1,15 +1,261 @@
 """
 ui/tab_monitor.py
-Network Monitor tab — rolling ping graph + per-host stats.
+Network Monitor tab — rolling ping graph + per-host stats + health diagnostics.
 """
+
+from datetime import datetime
 
 from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QHBoxLayout,
-    QLabel, QLineEdit, QPushButton, QFrame, QSizePolicy,
+    QLabel, QLineEdit, QPushButton, QFrame, QSizePolicy, QScrollArea,
 )
 from PyQt5.QtCore import Qt, pyqtSignal
 
 from .widgets.ping_graph import PingGraph
+
+
+_LEVEL_COLORS = {
+    "HIGH":   "#f44336",
+    "MEDIUM": "#ff9800",
+    "LOW":    "#4caf50",
+}
+
+
+class DiagnosticPanel(QFrame):
+    """
+    Collapsible panel showing currently-applied settings with risk badges
+    and a live alert log.  Appended below the stats bar in the Monitor tab.
+    """
+
+    disable_setting_requested = pyqtSignal(str)  # key name
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("diagnosticPanel")
+        self.setStyleSheet(
+            "QFrame#diagnosticPanel { background-color: #1a1a2e;"
+            " border: 1px solid #2a2a4a; border-radius: 6px; }"
+        )
+        self._collapsed = False
+        self._applied: dict[str, dict] = {}  # flat {key: risk_entry | {}}
+
+        self._build_ui()
+
+    # ------------------------------------------------------------------ build
+
+    def _build_ui(self) -> None:
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+
+        # Collapsible header
+        self._header_btn = QPushButton("  \u2665  Health Diagnostics  \u25bc")
+        self._header_btn.setCheckable(False)
+        self._header_btn.setStyleSheet(
+            "QPushButton { background-color: #16213e; color: #4fc3f7;"
+            " font-size: 12px; font-weight: 700; border: none;"
+            " border-radius: 6px; padding: 6px 12px; text-align: left; }"
+            "QPushButton:hover { background-color: #1a2a4a; }"
+        )
+        self._header_btn.clicked.connect(self._toggle_collapse)
+        outer.addWidget(self._header_btn)
+
+        # Body (collapsible)
+        self._body = QWidget()
+        body_layout = QVBoxLayout(self._body)
+        body_layout.setContentsMargins(12, 8, 12, 10)
+        body_layout.setSpacing(8)
+
+        # Applied settings section
+        settings_lbl = QLabel("Applied Settings:")
+        settings_lbl.setStyleSheet(
+            "color: #9e9e9e; font-size: 11px; font-weight: 600;"
+            " background: transparent; border: none;"
+        )
+        body_layout.addWidget(settings_lbl)
+
+        self._settings_container = QWidget()
+        self._settings_layout = QVBoxLayout(self._settings_container)
+        self._settings_layout.setContentsMargins(0, 0, 0, 0)
+        self._settings_layout.setSpacing(3)
+        self._no_settings_lbl = QLabel("No settings applied yet.")
+        self._no_settings_lbl.setStyleSheet(
+            "color: #555; font-size: 11px; background: transparent; border: none;"
+        )
+        self._settings_layout.addWidget(self._no_settings_lbl)
+        body_layout.addWidget(self._settings_container)
+
+        # Separator
+        sep = QFrame()
+        sep.setFrameShape(QFrame.HLine)
+        sep.setStyleSheet("color: #2a2a4a; background: #2a2a4a;")
+        sep.setFixedHeight(1)
+        body_layout.addWidget(sep)
+
+        # Alerts section
+        alerts_lbl = QLabel("Active Alerts:")
+        alerts_lbl.setStyleSheet(
+            "color: #9e9e9e; font-size: 11px; font-weight: 600;"
+            " background: transparent; border: none;"
+        )
+        body_layout.addWidget(alerts_lbl)
+
+        # Scrollable alert list
+        self._alerts_scroll = QScrollArea()
+        self._alerts_scroll.setWidgetResizable(True)
+        self._alerts_scroll.setFrameShape(QFrame.NoFrame)
+        self._alerts_scroll.setFixedHeight(100)
+        self._alerts_scroll.setStyleSheet("background: transparent;")
+
+        self._alerts_container = QWidget()
+        self._alerts_layout = QVBoxLayout(self._alerts_container)
+        self._alerts_layout.setContentsMargins(0, 0, 0, 0)
+        self._alerts_layout.setSpacing(4)
+        self._no_alerts_lbl = QLabel("No alerts.")
+        self._no_alerts_lbl.setStyleSheet(
+            "color: #555; font-size: 11px; background: transparent; border: none;"
+        )
+        self._alerts_layout.addWidget(self._no_alerts_lbl)
+        self._alerts_layout.addStretch()
+        self._alerts_scroll.setWidget(self._alerts_container)
+        body_layout.addWidget(self._alerts_scroll)
+
+        outer.addWidget(self._body)
+
+    # ------------------------------------------------------------------ public API
+
+    def update_applied_settings(self, applied: dict[str, dict]) -> None:
+        """
+        Rebuild the applied-settings rows.
+
+        Parameters
+        ----------
+        applied : mapping of tab_name → settings_dict
+                  e.g. {"wifi": {"minimize_roaming": True, ...}, "fps": {...}}
+        """
+        from core.settings_risk import get_risk
+
+        # Clear old rows (leave no_settings_lbl in layout)
+        while self._settings_layout.count():
+            item = self._settings_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        # Flatten all enabled keys
+        flat_rows: list[tuple[str, dict]] = []
+        for _tab, settings in applied.items():
+            for key, val in settings.items():
+                if val:
+                    entry = get_risk(key) or {}
+                    flat_rows.append((key, entry))
+
+        if not flat_rows:
+            self._settings_layout.addWidget(self._no_settings_lbl)
+            self._no_settings_lbl.show()
+            return
+
+        self._no_settings_lbl.hide()
+        for key, entry in flat_rows:
+            self._settings_layout.addWidget(self._make_setting_row(key, entry))
+
+    def add_alert(self, message: str, culprit_key: str = "") -> None:
+        """Prepend a timestamped alert row, optionally with a [Disable] button."""
+        # Remove the "No alerts" placeholder if visible
+        if self._no_alerts_lbl.isVisible():
+            self._no_alerts_lbl.hide()
+            # Remove it from layout so new rows appear above stretch
+            self._alerts_layout.removeWidget(self._no_alerts_lbl)
+
+        timestamp = datetime.now().strftime("%H:%M")
+
+        row_frame = QFrame()
+        row_frame.setStyleSheet(
+            "QFrame { background-color: #2e1a00; border: 1px solid #ff9800;"
+            " border-radius: 4px; }"
+        )
+        row_layout = QVBoxLayout(row_frame)
+        row_layout.setContentsMargins(8, 4, 8, 4)
+        row_layout.setSpacing(4)
+
+        msg_lbl = QLabel(f"[{timestamp}] {message}")
+        msg_lbl.setWordWrap(True)
+        msg_lbl.setStyleSheet(
+            "color: #ff9800; font-size: 11px; background: transparent; border: none;"
+        )
+        row_layout.addWidget(msg_lbl)
+
+        if culprit_key:
+            disable_btn = QPushButton(f"Disable {culprit_key}")
+            disable_btn.setFixedHeight(22)
+            disable_btn.setStyleSheet(
+                "QPushButton { background-color: #3a2000; color: #ff9800;"
+                " border: 1px solid #ff9800; border-radius: 3px; font-size: 11px;"
+                " padding: 0 8px; }"
+                "QPushButton:hover { background-color: #4a2800; }"
+            )
+            _key = culprit_key  # capture for lambda
+            disable_btn.clicked.connect(lambda _checked, k=_key: self.disable_setting_requested.emit(k))
+            row_layout.addWidget(disable_btn)
+
+        # Insert at position 0 (most recent first), before stretch
+        self._alerts_layout.insertWidget(0, row_frame)
+
+    def clear_alerts(self) -> None:
+        """Remove all alert rows."""
+        while self._alerts_layout.count():
+            item = self._alerts_layout.takeAt(0)
+            if item.widget() and item.widget() is not self._no_alerts_lbl:
+                item.widget().deleteLater()
+
+        self._no_alerts_lbl.show()
+        self._alerts_layout.addWidget(self._no_alerts_lbl)
+        self._alerts_layout.addStretch()
+
+    # ------------------------------------------------------------------ internals
+
+    def _toggle_collapse(self) -> None:
+        self._collapsed = not self._collapsed
+        self._body.setVisible(not self._collapsed)
+        arrow = "\u25b6" if self._collapsed else "\u25bc"
+        self._header_btn.setText(f"  \u2665  Health Diagnostics  {arrow}")
+
+    @staticmethod
+    def _make_setting_row(key: str, entry: dict) -> QWidget:
+        level = entry.get("level", "LOW")
+        color = _LEVEL_COLORS.get(level, "#4caf50")
+        display = entry.get("display", key)
+        cause = entry.get("cause", "")
+
+        row = QWidget()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(0, 0, 0, 0)
+        row_layout.setSpacing(8)
+
+        badge = QLabel(f" \u25cf {level} ")
+        badge.setStyleSheet(
+            f"color: {color}; font-size: 11px; font-weight: 700;"
+            " background: transparent; border: none;"
+        )
+
+        name_lbl = QLabel(display)
+        name_lbl.setStyleSheet(
+            "color: #e0e0e0; font-size: 12px; background: transparent; border: none;"
+        )
+
+        row_layout.addWidget(badge)
+        row_layout.addWidget(name_lbl)
+
+        if cause and level != "LOW":
+            row_layout.addSpacing(4)
+            detail_lbl = QLabel(f"— {cause}")
+            detail_lbl.setStyleSheet(
+                "color: #757575; font-size: 11px; background: transparent; border: none;"
+            )
+            detail_lbl.setWordWrap(False)
+            row_layout.addWidget(detail_lbl)
+
+        row_layout.addStretch()
+        return row
 
 
 class TabMonitor(QWidget):
@@ -18,10 +264,12 @@ class TabMonitor(QWidget):
 
     Signals
     -------
-    host_changed(str)   — emitted when user clicks Apply with a new host
+    host_changed(str)           — emitted when user clicks Apply with a new host
+    disable_setting_requested(str) — forwarded from DiagnosticPanel
     """
 
     host_changed = pyqtSignal(str)
+    disable_setting_requested = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -108,6 +356,11 @@ class TabMonitor(QWidget):
 
         stats_layout.addStretch()
         layout.addWidget(stats_frame)
+
+        # Diagnostic panel
+        self._diag = DiagnosticPanel(self)
+        self._diag.disable_setting_requested.connect(self.disable_setting_requested)
+        layout.addWidget(self._diag, stretch=0)
 
     @staticmethod
     def _mk_stat(key: str, default: str):
@@ -207,3 +460,11 @@ class TabMonitor(QWidget):
         self._current_host_label.setText(f"Monitoring: {host}")
         self._reset_stats()
         self._graph.clear()
+
+    def update_applied_settings(self, applied: dict) -> None:
+        """Forward applied settings to DiagnosticPanel for display."""
+        self._diag.update_applied_settings(applied)
+
+    def add_health_alert(self, message: str, culprit_key: str = "") -> None:
+        """Forward a health alert to DiagnosticPanel."""
+        self._diag.add_alert(message, culprit_key)

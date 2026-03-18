@@ -21,6 +21,7 @@ class StatusToast(QWidget):
         "success": ("#0a2e10", "#4caf50", "\u2713"),
         "error":   ("#2e0a0a", "#f44336", "\u2717"),
         "info":    ("#0a1a2e", "#4fc3f7", "\u2139"),
+        "warning": ("#2e1a00", "#ff9800", "\u26a0"),
     }
 
     def __init__(self, parent=None):

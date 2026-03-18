@@ -60,6 +60,24 @@ class MainWindow(QMainWindow):
         self._game_mode_debounce.setInterval(300)
         self._game_mode_debounce.timeout.connect(self._apply_game_mode_toggle)
 
+        # Applied-settings tracking for health diagnostics
+        self._applied_settings: dict[str, dict] = {}
+
+        # Health alert cooldown (60s between repeat alerts for the same condition)
+        self._health_alert_cooldown = False
+        self._health_alert_timer = QTimer(self)
+        self._health_alert_timer.setSingleShot(True)
+        self._health_alert_timer.setInterval(60_000)
+        self._health_alert_timer.timeout.connect(
+            lambda: setattr(self, "_health_alert_cooldown", False)
+        )
+
+        # GPU temperature polling (5s; only while nvidia settings are applied)
+        self._gpu_temp_timer = QTimer(self)
+        self._gpu_temp_timer.setInterval(5000)
+        self._gpu_temp_timer.timeout.connect(self._check_gpu_temp)
+        self._gpu_throttle_alerted = False
+
     # ------------------------------------------------------------------ UI setup
 
     def _setup_ui(self):
@@ -153,6 +171,7 @@ class MainWindow(QMainWindow):
         self.tab_profiles.profile_export_requested.connect(self._on_profile_export)
         self.tab_settings.settings_changed.connect(self._on_settings_changed)
         self.tab_settings.game_list_changed.connect(self._on_game_list_changed)
+        self.tab_monitor.disable_setting_requested.connect(self._on_disable_setting)
 
     # ------------------------------------------------------------------ Ping signals
 
@@ -174,6 +193,7 @@ class MainWindow(QMainWindow):
 
         self.tab_dashboard.update_ping_stats(avg_ping, jitter, loss_pct)
         self.tab_monitor.add_reading(host, latency_ms if not timed_out else None, timed_out)
+        self._check_connectivity_health(loss_pct)
 
     def _compute_jitter(self, readings: list) -> float:
         if len(readings) < 2:
@@ -238,6 +258,14 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.warning(f"Optimizer game mode apply failed: {e}")
         self._game_mode_applied = True
+        self._applied_settings["wifi"] = self.tab_wifi.get_settings()
+        self._applied_settings["fps"] = self.tab_fps.get_settings()
+        self._applied_settings["optimizer"] = self.tab_optimizer.get_settings()
+        self.tab_monitor.update_applied_settings(self._applied_settings)
+        # Start GPU temp polling if nvidia settings are on
+        fps = self._applied_settings.get("fps", {})
+        if fps.get("nvidia_max_perf") or fps.get("nvidia_ull"):
+            self._gpu_temp_timer.start()
         self._toast.show_message("Game Mode: all optimizations applied", "success")
 
     def _deactivate_game_mode(self):
@@ -258,12 +286,23 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(dict)
     def _on_wifi_apply(self, settings: dict):
+        from core.settings_risk import filter_by_level
+        from ui.widgets.risk_warning_dialog import RiskWarningDialog
+        from PyQt5.QtWidgets import QDialog
+        enabled_keys = [k for k, v in settings.items() if v]
+        risky = filter_by_level(enabled_keys, min_level="MEDIUM")
+        if risky:
+            dlg = RiskWarningDialog(risky, parent=self)
+            if dlg.exec_() == QDialog.Rejected:
+                return
         try:
             self._apply_wifi(settings)
             self.tab_wifi.set_settings(settings)
             self.tab_wifi.mark_applied(settings)
             self.tab_wifi.show_apply_success()
             self._toast.show_message("Wi-Fi optimizations applied", "success")
+            self._applied_settings["wifi"] = settings
+            self.tab_monitor.update_applied_settings(self._applied_settings)
         except Exception:
             self.tab_wifi.show_apply_error()
             self._toast.show_message("Wi-Fi apply failed", "error")
@@ -285,6 +324,8 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _on_wifi_restore(self):
         self.tab_wifi.clear_applied()
+        self._applied_settings.pop("wifi", None)
+        self.tab_monitor.update_applied_settings(self._applied_settings)
         try:
             if self._wifi_optimizer and self.state_guard:
                 state = self.state_guard.get_state()
@@ -299,12 +340,25 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(dict)
     def _on_fps_apply(self, settings: dict):
+        from core.settings_risk import filter_by_level
+        from ui.widgets.risk_warning_dialog import RiskWarningDialog
+        from PyQt5.QtWidgets import QDialog
+        enabled_keys = [k for k, v in settings.items() if v]
+        risky = filter_by_level(enabled_keys, min_level="MEDIUM")
+        if risky:
+            dlg = RiskWarningDialog(risky, parent=self)
+            if dlg.exec_() == QDialog.Rejected:
+                return
         try:
             self._apply_fps(settings)
             self.tab_fps.set_settings(settings)
             self.tab_fps.mark_applied(settings)
             self.tab_fps.show_apply_success()
             self._toast.show_message("FPS optimizations applied", "success")
+            self._applied_settings["fps"] = settings
+            self.tab_monitor.update_applied_settings(self._applied_settings)
+            if settings.get("nvidia_max_perf") or settings.get("nvidia_ull"):
+                self._gpu_temp_timer.start()
         except Exception:
             self.tab_fps.show_apply_error()
             self._toast.show_message("FPS apply failed", "error")
@@ -354,6 +408,10 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _on_fps_restore(self):
         self.tab_fps.clear_applied()
+        self._applied_settings.pop("fps", None)
+        self.tab_monitor.update_applied_settings(self._applied_settings)
+        self._gpu_temp_timer.stop()
+        self._gpu_throttle_alerted = False
         try:
             if self._fps_booster and self.state_guard:
                 state = self.state_guard.get_state()
@@ -368,12 +426,23 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(dict)
     def _on_optimizer_apply(self, settings: dict):
+        from core.settings_risk import filter_by_level
+        from ui.widgets.risk_warning_dialog import RiskWarningDialog
+        from PyQt5.QtWidgets import QDialog
+        enabled_keys = [k for k, v in settings.items() if v]
+        risky = filter_by_level(enabled_keys, min_level="MEDIUM")
+        if risky:
+            dlg = RiskWarningDialog(risky, parent=self)
+            if dlg.exec_() == QDialog.Rejected:
+                return
         try:
             self._apply_optimizer(settings)
             self.tab_optimizer.set_settings(settings)
             self.tab_optimizer.mark_applied(settings)
             self.tab_optimizer.show_apply_success()
             self._toast.show_message("Network optimizations applied", "success")
+            self._applied_settings["optimizer"] = settings
+            self.tab_monitor.update_applied_settings(self._applied_settings)
         except Exception:
             self.tab_optimizer.show_apply_error()
             self._toast.show_message("Optimizer apply failed", "error")
@@ -446,6 +515,8 @@ class MainWindow(QMainWindow):
     @pyqtSlot()
     def _on_optimizer_restore(self):
         self.tab_optimizer.clear_applied()
+        self._applied_settings.pop("optimizer", None)
+        self.tab_monitor.update_applied_settings(self._applied_settings)
         try:
             if self.state_guard:
                 self.state_guard.restore_all()
@@ -644,6 +715,72 @@ class MainWindow(QMainWindow):
             self.tab_dashboard.set_battery_warning(on_battery)
         except Exception:
             pass
+
+    # ------------------------------------------------------------------ Health monitoring
+
+    def _check_connectivity_health(self, loss_pct: float) -> None:
+        """Called every ping reading. Fires a warning toast if packet loss is high."""
+        if self._health_alert_cooldown or loss_pct < 15.0:
+            return
+        wifi = self._applied_settings.get("wifi", {})
+        if wifi.get("minimize_roaming"):
+            msg = (
+                "High packet loss detected — 'Minimize Roaming Aggressiveness' "
+                "may be causing brief disconnects during AP handoffs."
+            )
+            culprit = "minimize_roaming"
+        elif wifi.get("prefer_6ghz"):
+            msg = "High packet loss — 'Prefer 6 GHz Band' may be causing reconnects."
+            culprit = "prefer_6ghz"
+        else:
+            return
+        self._toast.show_message(msg, "warning", duration_ms=6000)
+        self.tab_monitor.add_health_alert(msg, culprit_key=culprit)
+        self._health_alert_cooldown = True
+        self._health_alert_timer.start()
+
+    def _check_gpu_temp(self) -> None:
+        """Poll GPU temperature via nvidia-smi every 5 s."""
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=temperature.gpu",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=3,
+            )
+            temp = int(result.stdout.strip())
+        except Exception:
+            return
+        if temp >= 85 and not self._gpu_throttle_alerted:
+            msg = (
+                f"GPU {temp}\u00b0C — thermal throttling may be causing FPS drops. "
+                "Consider disabling 'NVIDIA Maximum Performance Mode'."
+            )
+            self._toast.show_message(msg, "warning", duration_ms=8000)
+            self.tab_monitor.add_health_alert(msg, culprit_key="nvidia_max_perf")
+            self._gpu_throttle_alerted = True
+        elif temp < 80:
+            self._gpu_throttle_alerted = False
+
+    @pyqtSlot(str)
+    def _on_disable_setting(self, key: str) -> None:
+        """Quick-disable a setting from the DiagnosticPanel [Disable] button."""
+        from core.settings_risk import get_risk
+        risk = get_risk(key)
+        tab_name = risk.get("tab") if risk else None
+        tab_map = {
+            "wifi": self.tab_wifi,
+            "fps": self.tab_fps,
+            "optimizer": self.tab_optimizer,
+        }
+        tab = tab_map.get(tab_name)
+        if tab:
+            tab.set_settings({key: False})
+            self._applied_settings.get(tab_name, {}).pop(key, None)
+            self.tab_monitor.update_applied_settings(self._applied_settings)
+        self._toast.show_message(
+            f"'{key}' unchecked — click Apply in its tab to take effect.", "info"
+        )
 
     # ------------------------------------------------------------------ Misc
 

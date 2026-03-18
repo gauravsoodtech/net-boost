@@ -48,6 +48,7 @@ tests/                      # pytest unit tests + integration check script
 | `core/background_killer.py` | Suspend services/processes on game launch | `BackgroundKiller` |
 | `core/bandwidth_manager.py` | DSCP QoS registry + SetPriorityClass | `BandwidthManager` |
 | `core/ram_optimizer.py` | EmptyWorkingSet + file cache flush | `RamOptimizer` |
+| `core/settings_risk.py` | Risk metadata for every toggle key (pure Python, no Qt) | `get_risk()`, `filter_by_level()` |
 
 ---
 
@@ -260,6 +261,63 @@ Key implementation notes:
 - Uses `QGraphicsOpacityEffect` + `QPropertyAnimation` for fade — **not** `windowOpacity` (only works on top-level windows, has no effect on child widgets)
 - Two separate animation objects (`_in_anim`, `_out_anim`) so `finished.connect(self.hide)` is wired exactly once — prevents accumulating connections if `show_message()` is called while a toast is active
 - `MainWindow.resizeEvent` calls `self._toast._reposition()` to keep it anchored top-right when the window is resized
+- Supports four styles: `"success"`, `"error"`, `"info"`, `"warning"` (amber ⚠)
+
+## Settings Health Monitor
+
+Three cooperating components implement the health monitoring system:
+
+### `core/settings_risk.py` — Risk Registry
+Pure Python, no Qt. Maps every UI toggle key → `level` (HIGH/MEDIUM/LOW), `tab`, `display`, `cause`, `advice`.
+
+```python
+from core.settings_risk import get_risk, filter_by_level
+
+get_risk("minimize_roaming")      # → {"level": "HIGH", "tab": "wifi", ...}
+get_risk("__unknown__")           # → None
+
+filter_by_level(enabled_keys, min_level="MEDIUM")
+# → [(key, entry), ...] sorted HIGH → MEDIUM, LOW excluded
+```
+
+- 27 entries covering all Wi-Fi, FPS, and Optimizer toggles
+- `filter_by_level` is used by the pre-apply gate in all three `_on_*_apply` handlers
+
+### `ui/widgets/risk_warning_dialog.py` — Pre-Apply Modal
+`RiskWarningDialog(risky, parent)` — shown before applying when any MEDIUM/HIGH settings are enabled.
+- "Apply Anyway" → `accept()` — apply proceeds
+- "Review Settings" → `reject()` — apply aborts (slot returns early)
+- **Not** shown in `_activate_game_mode()` (intentional — user explicitly triggered Game Mode)
+
+### `DiagnosticPanel` in `ui/tab_monitor.py`
+Collapsible `QFrame` appended below the stats bar in the Monitor tab.
+
+- `update_applied_settings(applied: dict[str, dict])` — rebuilds rows; called after every successful apply/restore and after Game Mode activation
+- `add_alert(message, culprit_key)` — prepends timestamped alert row; if `culprit_key` is given, adds a `[Disable <key>]` button that emits `disable_setting_requested`
+- `TabMonitor.disable_setting_requested` signal is forwarded to `MainWindow._on_disable_setting(key)`
+
+### Health Monitoring in `MainWindow`
+
+**Connectivity health** — called from `on_ping_reading` on every ping:
+- If packet loss ≥15% and `minimize_roaming` or `prefer_6ghz` is in `_applied_settings["wifi"]` → amber warning toast + panel alert
+- 60s cooldown (`_health_alert_timer`) between repeat alerts for the same condition
+
+**GPU temperature** — `_gpu_temp_timer` (5s interval, `nvidia-smi`):
+- Starts in `_on_fps_apply` success path when `nvidia_max_perf` or `nvidia_ull` is enabled
+- Also started in `_activate_game_mode` if those settings are active
+- Stops in `_on_fps_restore`
+- Fires amber toast + panel alert when temp ≥85°C; resets alert flag when temp drops below 80°C
+
+**Quick-disable** — `_on_disable_setting(key)`:
+- Looks up `tab` from risk registry
+- Calls `tab.set_settings({key: False})` to uncheck the toggle
+- Removes key from `_applied_settings` and refreshes the panel
+- Shows info toast: "unchecked — click Apply in its tab to take effect"
+
+**Applied settings tracking** — `_applied_settings: dict[str, dict]`:
+- Updated after every successful `_on_wifi_apply`, `_on_fps_apply`, `_on_optimizer_apply`
+- Cleared per-tab on each restore (`_on_*_restore`)
+- Populated for all three tabs in `_activate_game_mode`
 
 ## Common Pitfalls
 

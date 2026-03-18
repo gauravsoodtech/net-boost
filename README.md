@@ -70,12 +70,23 @@ The Intel AX211 aggressively power-saves and background-scans by default, causin
 - Auto game detection — activates in **<1.5 seconds** of game launch
 - System tray: grey (idle) → yellow (game detected) → green (optimized)
 
+### 🩺 Settings Health Monitor *(new)*
+NetBoost now actively watches for signs that your applied settings are causing problems:
+
+| What it detects | How |
+|----------------|-----|
+| **Random disconnects** | Packet loss >15% while `Minimize Roaming Aggressiveness` is on → amber toast + alert |
+| **FPS drops after 10 min** | GPU temp ≥85°C while `NVIDIA Maximum Performance` is on → warns about thermal throttling |
+| **Pre-apply risk warning** | Before applying HIGH/MEDIUM risk settings, a modal lists the risk and advice |
+| **Health Diagnostics panel** | Monitor tab shows every active setting with a color-coded risk badge (🟢/🟡/🔴) and a live alert log |
+| **Quick-disable** | Alert rows include a `[Disable <setting>]` button — one click unchecks the culprit without leaving the Monitor tab |
+
 ### 🛡️ Crash-Safe
 All changes tracked in an atomic state file. If NetBoost crashes mid-session, it **automatically restores your original settings** on next launch.
 
 ### ✨ Visual Feedback
 - Apply buttons flash **green ✓** on success and **red ✗** on error, then revert — no silent failures
-- Floating toast notifications appear top-right for every apply action
+- Floating toast notifications appear top-right for every apply action (success / error / info / **warning**)
 - Polished dark theme: gradient buttons, tab underline indicator, focus glows on inputs, thin rounded scrollbars
 
 ---
@@ -163,7 +174,8 @@ netboost/
 │   ├── background_killer.py   # Service/process management
 │   ├── bandwidth_manager.py   # QoS DSCP + priority
 │   ├── ram_optimizer.py       # Working set + file cache flush
-│   └── profile_manager.py     # JSON profile CRUD
+│   ├── profile_manager.py     # JSON profile CRUD
+│   └── settings_risk.py       # Risk metadata registry (27 settings, 3 levels)
 ├── ui/
 │   ├── main_window.py         # QMainWindow + signal wiring
 │   ├── tray_icon.py           # System tray
@@ -176,10 +188,11 @@ netboost/
 │   ├── tab_profiles.py        # Profile management
 │   ├── tab_settings.py        # App settings + game list
 │   └── widgets/
-│       ├── ping_graph.py      # PyQtGraph rolling graph
-│       ├── toggle_switch.py   # Animated iOS-style toggle
-│       ├── status_led.py      # Green/yellow/red LED
-│       └── status_toast.py    # Floating fade-in/out toast notification
+│       ├── ping_graph.py          # PyQtGraph rolling graph
+│       ├── toggle_switch.py       # Animated iOS-style toggle
+│       ├── status_led.py          # Green/yellow/red LED
+│       ├── status_toast.py        # Floating fade-in/out toast (success/error/info/warning)
+│       └── risk_warning_dialog.py # Pre-apply risk warning modal
 ├── resources/styles/
 │   └── dark_theme.qss         # Dark gaming UI theme
 └── tests/
@@ -188,6 +201,7 @@ netboost/
     ├── test_ping_monitor.py
     ├── test_dns_switcher.py
     ├── test_state_guard.py
+    ├── test_settings_risk.py  # Risk registry: ordering, filtering, field validation
     └── integration_check.py   # Live system validation script
 ```
 
