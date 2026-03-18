@@ -164,7 +164,7 @@ def test_tcp_registry():
         return "SKIP no admin"
 
     opt = NetworkOptimizer()
-    settings = {"nagle_off": True, "tcp_nodelay": True, "window_scaling": False}
+    settings = {"tcp_no_delay": True, "tcp_ack_freq": True, "tcp_window_scale": False}
     backup = opt.apply(settings)
 
     # Verify at least one interface was modified
@@ -249,10 +249,10 @@ def test_profile_roundtrip():
     test_name = f"IntegrationTest_{uuid.uuid4().hex[:8]}"
     profile = {
         "name": test_name,
-        "dns": {"provider": "cloudflare", "enabled": False},
-        "tcp_optimizer": {"nagle_off": True, "enabled": False},
+        "dns": {"switch_dns": False, "dns_provider": "Cloudflare 1.1.1.1"},
+        "tcp_optimizer": {"tcp_no_delay": True, "tcp_ack_freq": True, "tcp_window_scale": False, "enabled": False},
         "bandwidth": {"game_priority": 3, "enabled": False},
-        "background_killer": {"pause_wupdate": False, "pause_onedrive": False, "pause_bits": False, "enabled": False},
+        "background_killer": {"pause_windows_update": False, "pause_onedrive": False, "pause_bits": False, "enabled": False},
         "fps_boost": {"enabled": False},
         "ping_monitor": {"host": "1.1.1.1", "interval_ms": 500},
         "game_list": [],
@@ -262,7 +262,7 @@ def test_profile_roundtrip():
     pm.save_profile(test_name, profile)
     loaded = pm.load_profile(test_name)
     assert loaded["name"] == test_name
-    assert loaded["dns"]["provider"] == "cloudflare"
+    assert loaded["dns"]["dns_provider"] == "Cloudflare 1.1.1.1"
 
     pm.delete_profile(test_name)
     assert test_name not in pm.list_profiles()

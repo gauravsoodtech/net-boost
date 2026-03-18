@@ -32,7 +32,9 @@ class MainWindow(QMainWindow):
         self._game_mode_active = False
         self._game_mode_applied = False   # True only if Game Mode itself applied changes
         self._game_mode_pending = False   # latest value for debounce
+        self._auto_game_mode = False      # mirrors tab_settings auto_game_mode checkbox
         self._ram_freed_mb = 0
+        self.tray = None                  # set by main.py after TrayIcon is created
 
         # Optimizer instances (lazy-created when needed)
         self._wifi_optimizer = None
@@ -167,6 +169,7 @@ class MainWindow(QMainWindow):
         self.tab_profiles.profile_load_requested.connect(self._on_profile_load)
         self.tab_profiles.profile_delete_requested.connect(self._on_profile_delete)
         self.tab_profiles.profile_new_requested.connect(self._on_profile_new)
+        self.tab_profiles.profile_duplicate_requested.connect(self._on_profile_duplicate)
         self.tab_profiles.profile_import_requested.connect(self._on_profile_import)
         self.tab_profiles.profile_export_requested.connect(self._on_profile_export)
         self.tab_settings.settings_changed.connect(self._on_settings_changed)
@@ -208,9 +211,16 @@ class MainWindow(QMainWindow):
         logger.info(f"Game launched: {exe_name}")
         self._current_game = exe_name
         self.tab_dashboard.set_game_detected(exe_name)
+        if self.tray:
+            self.tray.set_game_detected(exe_name)
         self._set_status(f"Game detected: {exe_name}")
 
         if self._game_mode_active:
+            self._activate_game_mode(exe_name)
+        elif self._auto_game_mode:
+            # Auto-enable Game Mode when a game is detected
+            self._game_mode_active = True
+            self.tab_dashboard.set_game_mode(True)
             self._activate_game_mode(exe_name)
 
     @pyqtSlot(str)
@@ -218,6 +228,8 @@ class MainWindow(QMainWindow):
         logger.info(f"Game exited: {exe_name}")
         self._current_game = None
         self.tab_dashboard.set_game_detected(None)
+        if self.tray:
+            self.tray.set_game_detected(None)
         self._set_status("No game detected")
 
         if self._game_mode_active:
@@ -573,6 +585,8 @@ class MainWindow(QMainWindow):
             if self._background_killer is None:
                 self._background_killer = BackgroundKiller()
             self._background_killer.suspend_process(pid)
+            self.tab_bandwidth.set_suspended(pid, True)
+            self._on_bandwidth_refresh()
         except Exception as e:
             logger.warning(f"Suspend failed for PID {pid}: {e}")
 
@@ -583,6 +597,8 @@ class MainWindow(QMainWindow):
             if self._background_killer is None:
                 self._background_killer = BackgroundKiller()
             self._background_killer.resume_process(pid)
+            self.tab_bandwidth.set_suspended(pid, False)
+            self._on_bandwidth_refresh()
         except Exception as e:
             logger.warning(f"Resume failed for PID {pid}: {e}")
 
@@ -648,6 +664,23 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logger.error(f"Profile create error: {e}")
 
+    @pyqtSlot(str)
+    def _on_profile_duplicate(self, source_name: str):
+        from PyQt5.QtWidgets import QInputDialog
+        name, ok = QInputDialog.getText(self, "Duplicate Profile", "New profile name:")
+        if ok and name.strip():
+            if not self.profile_manager:
+                return
+            try:
+                source = self.profile_manager.load_profile(source_name)
+                source["name"] = name.strip()
+                self.profile_manager.save_profile(name.strip(), source)
+                profiles = self.profile_manager.list_profiles()
+                active = self.profile_manager.get_active().get("name", "")
+                self.tab_profiles.set_profiles(profiles, active)
+            except Exception as e:
+                logger.error(f"Profile duplicate error: {e}")
+
     @pyqtSlot()
     def _on_profile_import(self):
         from PyQt5.QtWidgets import QFileDialog
@@ -680,6 +713,7 @@ class MainWindow(QMainWindow):
         if self.ping_monitor:
             interval = settings.get("ping_interval_ms", 500)
             self.ping_monitor.set_interval(interval)
+        self._auto_game_mode = settings.get("auto_game_mode", False)
 
     @pyqtSlot(list)
     def _on_game_list_changed(self, game_list: list):

@@ -198,9 +198,12 @@ def apply(settings: dict) -> dict:
         iface_backup: dict = {}
 
         # --- Nagle / ack-frequency tweaks ---
-        for value_name, new_val in (("TcpAckFrequency", 1), ("TCPNoDelay", 1)):
-            iface_backup[value_name] = _read_reg(key_path, value_name)
-            _write_reg(key_path, value_name, new_val)
+        if settings.get("tcp_ack_freq"):
+            iface_backup["TcpAckFrequency"] = _read_reg(key_path, "TcpAckFrequency")
+            _write_reg(key_path, "TcpAckFrequency", 1)
+        if settings.get("tcp_no_delay"):
+            iface_backup["TCPNoDelay"] = _read_reg(key_path, "TCPNoDelay")
+            _write_reg(key_path, "TCPNoDelay", 1)
 
         backup["interfaces"][adapter_name] = iface_backup
 

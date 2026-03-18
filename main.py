@@ -105,6 +105,7 @@ def main():
 
     window = MainWindow(state_guard=guard, profile_manager=profile_manager)
     tray = TrayIcon(window, app)
+    window.tray = tray  # allow MainWindow to call tray.set_game_detected()
 
     window.show()
 

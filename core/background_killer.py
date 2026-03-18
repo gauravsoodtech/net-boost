@@ -34,7 +34,6 @@ ONESYNC_PREFIX = "OneSyncSvc"
 
 # Processes to *suspend* (not kill) — CPU/IO hogs.
 PROCESSES_TO_SUSPEND = [
-    "OneDrive.exe",
     "SearchIndexer.exe",
     "MsMpEng.exe",   # Windows Defender
 ]
@@ -273,10 +272,11 @@ def apply(settings: dict) -> dict:
             suspend_process(pid)
             backup["suspended_pids"].append(pid)
 
-    # --- Always: suspend SearchIndexer.exe ---
-    for pid in _find_pids_by_name("SearchIndexer.exe"):
-        suspend_process(pid)
-        backup["suspended_pids"].append(pid)
+    # --- Always: suspend background CPU/IO hogs ---
+    for exe_name in PROCESSES_TO_SUSPEND:
+        for pid in _find_pids_by_name(exe_name):
+            suspend_process(pid)
+            backup["suspended_pids"].append(pid)
 
     # --- Deprioritize browsers ---
     for exe_name in PROCESSES_TO_DEPRIORITIZE:

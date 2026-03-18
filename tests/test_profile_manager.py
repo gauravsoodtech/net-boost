@@ -42,9 +42,9 @@ class TestProfileManager:
         profile = {
             "name": "TestProfile",
             "dns": {"provider": "cloudflare", "enabled": True},
-            "tcp_optimizer": {"nagle_off": True, "tcp_nodelay": True, "window_scaling": False, "enabled": True},
+            "tcp_optimizer": {"tcp_no_delay": True, "tcp_ack_freq": True, "tcp_window_scale": False, "enabled": True},
             "bandwidth": {"game_priority": 3, "enabled": False},
-            "background_killer": {"pause_wupdate": True, "pause_onedrive": True, "pause_bits": False, "enabled": True},
+            "background_killer": {"pause_windows_update": True, "pause_onedrive": True, "pause_bits": False, "enabled": True},
             "fps_boost": {
                 "power_plan": True, "pcores_affinity": True, "timer_resolution": True,
                 "game_dvr_off": True, "nvidia_max_perf": False, "fullscreen_opt_off": False,
@@ -53,8 +53,8 @@ class TestProfileManager:
             "ping_monitor": {"host": "1.1.1.1", "interval_ms": 500},
             "game_list": ["cs2.exe", "VALORANT-Win64-Shipping.exe"],
             "wifi_optimizer": {
-                "power_save_off": True, "roam_aggression": True, "prefer_6ghz": True,
-                "tx_power_max": True, "bg_scan_off": True, "enabled": True,
+                "disable_power_saving": True, "minimize_roaming": True, "prefer_6ghz": True,
+                "max_tx_power": True, "disable_bss_scan": True, "enabled": True,
             },
             "nvidia_optimizer": {
                 "dynamic_pstate_off": True, "ull_mode": True, "max_power": True, "enabled": True,
@@ -64,7 +64,7 @@ class TestProfileManager:
         loaded = manager.load_profile("TestProfile")
         assert loaded["name"] == "TestProfile"
         assert loaded["dns"]["provider"] == "cloudflare"
-        assert loaded["tcp_optimizer"]["nagle_off"] is True
+        assert loaded["tcp_optimizer"]["tcp_no_delay"] is True
 
     def test_list_profiles(self, manager):
         """list_profiles() returns all saved profile names."""

@@ -226,3 +226,10 @@ class TabBandwidth(QWidget):
         self._footer_label.setText(
             f"{count} process{'es' if count != 1 else ''} listed."
         )
+
+    def set_suspended(self, pid: int, suspended: bool) -> None:
+        """Update suspended state for a PID (called by MainWindow after suspend/resume)."""
+        if suspended:
+            self._suspended_pids.add(pid)
+        else:
+            self._suspended_pids.discard(pid)

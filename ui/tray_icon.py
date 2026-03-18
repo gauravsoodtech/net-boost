@@ -115,8 +115,10 @@ class TrayIcon(QSystemTrayIcon):
     def _toggle_game_mode(self, checked: bool):
         """Called when user clicks tray toggle."""
         try:
+            # Update dashboard toggle visually (blockSignals prevents double-fire)
             self.main_window.tab_dashboard.set_game_mode(checked)
-            # This triggers the signal which will also call our _on_game_mode_changed
+            # set_game_mode blocks signals, so invoke the handler directly
+            self.main_window._on_game_mode_toggled(checked)
         except Exception as e:
             logger.error(f"Tray game mode toggle failed: {e}")
 

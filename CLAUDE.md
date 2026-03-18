@@ -202,6 +202,8 @@ Game Mode (Dashboard toggle) applies all tab settings automatically when enabled
 - Sets `_game_mode_applied = True` flag
 - `_deactivate_game_mode()` only calls `restore_all()` if `_game_mode_applied` is True — **does not touch manually applied settings**
 - Toggle is debounced with a 300ms `QTimer` (`_game_mode_debounce`) to collapse rapid clicks
+- **Tray icon toggle**: `TrayIcon._toggle_game_mode` calls `tab_dashboard.set_game_mode()` (visual only, blocks signals) **then** `main_window._on_game_mode_toggled()` directly — this two-step is required because `set_game_mode` uses `blockSignals(True)` to prevent recursive signal emission
+- **Auto Game Mode**: `MainWindow._auto_game_mode` mirrors the Settings tab checkbox; `on_game_launched` auto-activates Game Mode when a game is detected if this flag is True
 
 ## DNS Provider Mapping
 
@@ -319,6 +321,75 @@ Collapsible `QFrame` appended below the stats bar in the Monitor tab.
 - Cleared per-tab on each restore (`_on_*_restore`)
 - Populated for all three tabs in `_activate_game_mode`
 
+## Tray Icon
+
+`TrayIcon` in `ui/tray_icon.py` holds a `main_window` reference. `main.py` sets `window.tray = tray` after construction so `MainWindow` can call `tray.set_game_detected()`.
+
+- Grey = idle, Green = Game Mode on, Yellow = game detected (mode off)
+- `_on_game_mode_changed` is the tray's listener for `tab_dashboard.game_mode_toggled` — keeps checkmark in sync when game mode changes from the window
+- `update_profiles(profiles, active)` must be called by `MainWindow` after any profile list change (create/delete/import) to keep the tray submenu current
+
+## Bandwidth Tab — Suspend/Resume
+
+`TabBandwidth._suspended_pids: set[int]` drives button labels ("Suspend"/"Resume") and row background color (dark red for suspended). When `MainWindow._on_process_suspend/resume` handles a click it must:
+1. Call `tab_bandwidth.set_suspended(pid, True/False)` to update the set
+2. Call `_on_bandwidth_refresh()` to re-render the table with the new state
+
+## Profiles Tab — Duplicate vs New
+
+`TabProfiles` exposes two distinct signals:
+- `profile_new_requested()` — "New" button; `MainWindow._on_profile_new` creates a blank copy of "Default"
+- `profile_duplicate_requested(str)` — "Duplicate" button; `MainWindow._on_profile_duplicate(source_name)` asks for a name then copies the **selected** profile
+
+Do not emit `profile_new_requested` from `_on_duplicate` — it will always duplicate Default.
+
+## Canonical Key Names
+
+All setting key names are defined by the UI toggle rows (`_toggle_rows` dicts in each tab). Every backend module and profile JSON **must** use these exact strings. Mismatches cause silent no-ops.
+
+**Wi-Fi (`tab_wifi.py` → `core/wifi_optimizer.py`):**
+`disable_power_saving`, `minimize_roaming`, `max_tx_power`, `disable_bss_scan`, `prefer_6ghz`, `throughput_booster`, `disable_mimo_power_save`
+
+**TCP (`tab_optimizer.py` → `core/network_optimizer.py`):**
+`tcp_no_delay`, `tcp_ack_freq`, `tcp_window_scale` (translated to `window_scaling` before passing to backend)
+
+**Background Killer (`tab_optimizer.py` → `core/background_killer.py`):**
+`pause_windows_update`, `pause_onedrive`, `pause_bits`
+
+**DNS (`tab_optimizer.py` → `core/dns_switcher.py`):**
+`switch_dns`, `dns_provider` (display name), `dns_primary`, `dns_secondary`
+
+**FPS Booster CPU rows (`tab_fps.py` → `core/fps_booster.py`):**
+`power_plan`, `pcores_affinity`, `timer_resolution`, `game_dvr_off`, `sysmain_off`, `visual_effects_off`, `fullscreen_opt_off`
+
+**FPS Booster GPU rows (`tab_fps.py` → `core/nvidia_optimizer.py` via key translation):**
+`nvidia_max_perf` → `max_power`, `nvidia_ull` → `ull_mode`, `disable_hags` → `disable_hags`
+
+## Profile JSON Schema
+
+All profile fields and their canonical keys (as of current schema):
+
+```json
+{
+  "name": "Gaming",
+  "dns": {"switch_dns": true, "dns_provider": "Cloudflare 1.1.1.1", "dns_primary": "1.1.1.1", "dns_secondary": "1.0.0.1"},
+  "tcp_optimizer": {"tcp_no_delay": true, "tcp_ack_freq": true, "tcp_window_scale": true, "enabled": true},
+  "bandwidth": {"game_priority": true, "enabled": true},
+  "background_killer": {"pause_windows_update": true, "pause_onedrive": true, "pause_bits": true, "enabled": true},
+  "fps_boost": {"power_plan": true, "pcores_affinity": true, "timer_resolution": true, "game_dvr_off": true,
+                "nvidia_max_perf": true, "nvidia_ull": false, "disable_hags": false,
+                "fullscreen_opt_off": true, "sysmain_off": true, "visual_effects_off": true, "enabled": true},
+  "ping_monitor": {"host": "1.1.1.1", "interval_ms": 500},
+  "game_list": [],
+  "wifi_optimizer": {"disable_power_saving": true, "minimize_roaming": true, "prefer_6ghz": true,
+                     "max_tx_power": true, "disable_bss_scan": true,
+                     "throughput_booster": true, "disable_mimo_power_save": true, "enabled": true},
+  "nvidia_optimizer": {"dynamic_pstate_off": true, "ull_mode": true, "max_power": true, "enabled": true}
+}
+```
+
+`_apply_profile()` in `MainWindow` maps profile sections to tabs: `wifi_optimizer` → `tab_wifi`, `fps_boost` → `tab_fps`, merge of `tcp_optimizer`+`dns`+`background_killer` → `tab_optimizer`.
+
 ## Common Pitfalls
 
 - `BackgroundKiller.apply()` checks `pause_windows_update` (not `pause_wupdate`) — always use the full key name
@@ -334,3 +405,5 @@ Collapsible `QFrame` appended below the stats bar in the Monitor tab.
 - `QPropertyAnimation(widget, b"windowOpacity")` only works for top-level windows — use `QGraphicsOpacityEffect` for child widget opacity animation
 - `ToggleSwitch.mouseReleaseEvent` must call only `super().mouseReleaseEvent(event)` — do NOT manually call `setChecked()` before super, or the toggle double-fires and cancels itself
 - `_deactivate_game_mode()` must guard on `_game_mode_applied` flag — calling `restore_all()` unconditionally wipes manually applied settings
+- `TabDashboard.set_game_mode()` uses `blockSignals(True)` — calling it alone does NOT activate Game Mode logic; must also call `MainWindow._on_game_mode_toggled()` directly (as the tray does)
+- `OneDrive.exe` must NOT be in `PROCESSES_TO_SUSPEND` — it is handled conditionally inside the `pause_onedrive` block; listing it in both places would suspend it unconditionally and twice

@@ -29,12 +29,13 @@ class TabProfiles(QWidget):
     profile_export_requested(str)— "Export" button (passes selected name)
     """
 
-    profile_selected       = pyqtSignal(str)
-    profile_load_requested = pyqtSignal(str)
-    profile_delete_requested = pyqtSignal(str)
-    profile_new_requested  = pyqtSignal()
-    profile_import_requested = pyqtSignal()
-    profile_export_requested = pyqtSignal(str)
+    profile_selected          = pyqtSignal(str)
+    profile_load_requested    = pyqtSignal(str)
+    profile_delete_requested  = pyqtSignal(str)
+    profile_new_requested     = pyqtSignal()
+    profile_duplicate_requested = pyqtSignal(str)
+    profile_import_requested  = pyqtSignal()
+    profile_export_requested  = pyqtSignal(str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -196,8 +197,7 @@ class TabProfiles(QWidget):
     def _on_duplicate(self) -> None:
         name = self._selected_name()
         if name:
-            # Emit new-requested; caller is responsible for actual duplication
-            self.profile_new_requested.emit()
+            self.profile_duplicate_requested.emit(name)
 
     def _on_delete(self) -> None:
         name = self._selected_name()

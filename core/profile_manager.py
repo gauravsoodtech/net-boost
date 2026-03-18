@@ -37,15 +37,15 @@ def _empty_profile(name: str = "") -> dict:
     return {
         "name": name,
         "dns": {
-            "provider": "default",
-            "custom_primary": "",
-            "custom_secondary": "",
-            "enabled": False,
+            "switch_dns": False,
+            "dns_provider": "Cloudflare 1.1.1.1",
+            "dns_primary": "",
+            "dns_secondary": "",
         },
         "tcp_optimizer": {
-            "nagle_off": False,
-            "tcp_nodelay": False,
-            "window_scaling": False,
+            "tcp_no_delay": False,
+            "tcp_ack_freq": False,
+            "tcp_window_scale": False,
             "enabled": False,
         },
         "bandwidth": {
@@ -53,17 +53,19 @@ def _empty_profile(name: str = "") -> dict:
             "enabled": False,
         },
         "background_killer": {
-            "pause_wupdate": False,
+            "pause_windows_update": False,
             "pause_onedrive": False,
             "pause_bits": False,
             "enabled": False,
         },
         "fps_boost": {
-            "power_plan": "balanced",
+            "power_plan": False,
             "pcores_affinity": False,
             "timer_resolution": False,
             "game_dvr_off": False,
             "nvidia_max_perf": False,
+            "nvidia_ull": False,
+            "disable_hags": False,
             "fullscreen_opt_off": False,
             "sysmain_off": False,
             "visual_effects_off": False,
@@ -75,11 +77,13 @@ def _empty_profile(name: str = "") -> dict:
         },
         "game_list": [],
         "wifi_optimizer": {
-            "power_save_off": False,
-            "roam_aggression": False,
+            "disable_power_saving": False,
+            "minimize_roaming": False,
             "prefer_6ghz": False,
-            "tx_power_max": False,
-            "bg_scan_off": False,
+            "max_tx_power": False,
+            "disable_bss_scan": False,
+            "throughput_booster": False,
+            "disable_mimo_power_save": False,
             "enabled": False,
         },
         "nvidia_optimizer": {
@@ -97,16 +101,18 @@ def _empty_profile(name: str = "") -> dict:
 
 def _build_gaming_profile() -> dict:
     p = _empty_profile("Gaming")
-    p["dns"].update({"provider": "cloudflare", "enabled": True})
-    p["tcp_optimizer"].update({"nagle_off": True, "tcp_nodelay": True, "window_scaling": True, "enabled": True})
+    p["dns"].update({"switch_dns": True, "dns_provider": "Cloudflare 1.1.1.1", "dns_primary": "1.1.1.1", "dns_secondary": "1.0.0.1"})
+    p["tcp_optimizer"].update({"tcp_no_delay": True, "tcp_ack_freq": True, "tcp_window_scale": True, "enabled": True})
     p["bandwidth"].update({"game_priority": True, "enabled": True})
-    p["background_killer"].update({"pause_wupdate": True, "pause_onedrive": True, "pause_bits": True, "enabled": True})
+    p["background_killer"].update({"pause_windows_update": True, "pause_onedrive": True, "pause_bits": True, "enabled": True})
     p["fps_boost"].update({
-        "power_plan": "high_performance",
+        "power_plan": True,
         "pcores_affinity": True,
         "timer_resolution": True,
         "game_dvr_off": True,
         "nvidia_max_perf": True,
+        "nvidia_ull": False,
+        "disable_hags": False,
         "fullscreen_opt_off": True,
         "sysmain_off": True,
         "visual_effects_off": True,
@@ -114,11 +120,13 @@ def _build_gaming_profile() -> dict:
     })
     p["ping_monitor"].update({"host": "1.1.1.1", "interval_ms": 500})
     p["wifi_optimizer"].update({
-        "power_save_off": True,
-        "roam_aggression": True,
+        "disable_power_saving": True,
+        "minimize_roaming": True,
         "prefer_6ghz": True,
-        "tx_power_max": True,
-        "bg_scan_off": True,
+        "max_tx_power": True,
+        "disable_bss_scan": True,
+        "throughput_booster": True,
+        "disable_mimo_power_save": True,
         "enabled": True,
     })
     p["nvidia_optimizer"].update({"dynamic_pstate_off": True, "ull_mode": True, "max_power": True, "enabled": True})
@@ -127,16 +135,18 @@ def _build_gaming_profile() -> dict:
 
 def _build_work_profile() -> dict:
     p = _empty_profile("Work")
-    p["dns"].update({"provider": "google", "enabled": True})
-    p["tcp_optimizer"].update({"nagle_off": False, "tcp_nodelay": True, "window_scaling": True, "enabled": True})
+    p["dns"].update({"switch_dns": True, "dns_provider": "Google 8.8.8.8", "dns_primary": "8.8.8.8", "dns_secondary": "8.8.4.4"})
+    p["tcp_optimizer"].update({"tcp_no_delay": False, "tcp_ack_freq": True, "tcp_window_scale": True, "enabled": True})
     p["bandwidth"].update({"game_priority": False, "enabled": False})
-    p["background_killer"].update({"pause_wupdate": False, "pause_onedrive": False, "pause_bits": False, "enabled": False})
+    p["background_killer"].update({"pause_windows_update": False, "pause_onedrive": False, "pause_bits": False, "enabled": False})
     p["fps_boost"].update({
-        "power_plan": "balanced",
+        "power_plan": False,
         "pcores_affinity": False,
         "timer_resolution": False,
         "game_dvr_off": False,
         "nvidia_max_perf": False,
+        "nvidia_ull": False,
+        "disable_hags": False,
         "fullscreen_opt_off": False,
         "sysmain_off": False,
         "visual_effects_off": False,
@@ -144,11 +154,13 @@ def _build_work_profile() -> dict:
     })
     p["ping_monitor"].update({"host": "8.8.8.8", "interval_ms": 1000})
     p["wifi_optimizer"].update({
-        "power_save_off": True,
-        "roam_aggression": False,
+        "disable_power_saving": True,
+        "minimize_roaming": False,
         "prefer_6ghz": False,
-        "tx_power_max": False,
-        "bg_scan_off": False,
+        "max_tx_power": False,
+        "disable_bss_scan": False,
+        "throughput_booster": False,
+        "disable_mimo_power_save": False,
         "enabled": True,
     })
     p["nvidia_optimizer"].update({"dynamic_pstate_off": False, "ull_mode": False, "max_power": False, "enabled": False})
@@ -255,18 +267,21 @@ def load_profile(name: str) -> dict:
 
 
 def delete_profile(name: str) -> None:
-    """Delete the profile named *name*."""
+    """Delete the profile named *name*. No-op if it does not exist."""
     path = _profile_path(name)
     try:
         os.remove(path)
         logger.info("Profile '%s' deleted.", name)
     except FileNotFoundError:
-        raise KeyError(f"Profile '{name}' does not exist.")
+        pass
 
 
-def get_profile(name: str) -> dict:
-    """Alias for :func:`load_profile`."""
-    return load_profile(name)
+def get_profile(name: str) -> dict | None:
+    """Return the profile named *name*, or None if it does not exist."""
+    try:
+        return load_profile(name)
+    except KeyError:
+        return None
 
 
 def list_profiles() -> list[str]:
@@ -392,6 +407,9 @@ class ProfileManager:
 
     def delete_profile(self, name: str) -> None:
         delete_profile(name)
+
+    def get_profile(self, name: str) -> dict | None:
+        return get_profile(name)
 
     def import_profile(self, filepath: str) -> str:
         return import_profile(filepath)

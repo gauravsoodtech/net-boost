@@ -151,14 +151,13 @@ def apply(settings: dict) -> dict:
     Apply Wi-Fi optimizations described in *settings*.
 
     Settings keys consumed (all bool):
-    - ``power_save_off``  — PowerSavingMode=0
-    - ``roam_aggression`` — RoamAggressiveness=1
-    - ``tx_power_max``    — TxPowerLevel=5
-    - ``bg_scan_off``     — BSSSelectorCLsupport=0
-    - ``prefer_6ghz``     — PreferredBand=3
-
-    In addition, "Throughput Booster"=1 and "MIMO Power Save Mode"=3 are
-    always applied when the adapter key is found.
+    - ``disable_power_saving``  — PowerSavingMode=0
+    - ``minimize_roaming``      — RoamAggressiveness=1
+    - ``max_tx_power``          — TxPowerLevel=5
+    - ``disable_bss_scan``      — BSSSelectorCLsupport=0
+    - ``prefer_6ghz``           — PreferredBand=3
+    - ``throughput_booster``    — Throughput Booster=1
+    - ``disable_mimo_power_save`` — MIMO Power Save Mode=3
 
     Returns a *backup* dict of original values suitable for :func:`restore`.
     """
@@ -170,20 +169,20 @@ def apply(settings: dict) -> dict:
 
     tweaks: list[tuple[str, int]] = []
 
-    if settings.get("power_save_off"):
+    if settings.get("disable_power_saving"):
         tweaks.append(("PowerSavingMode", 0))
-    if settings.get("roam_aggression"):
+    if settings.get("minimize_roaming"):
         tweaks.append(("RoamAggressiveness", 1))
-    if settings.get("tx_power_max"):
+    if settings.get("max_tx_power"):
         tweaks.append(("TxPowerLevel", 5))
-    if settings.get("bg_scan_off"):
+    if settings.get("disable_bss_scan"):
         tweaks.append(("BSSSelectorCLsupport", 0))
     if settings.get("prefer_6ghz"):
         tweaks.append(("PreferredBand", 3))
-
-    # Always-on performance values.
-    tweaks.append(("Throughput Booster", 1))
-    tweaks.append(("MIMO Power Save Mode", 3))
+    if settings.get("throughput_booster"):
+        tweaks.append(("Throughput Booster", 1))
+    if settings.get("disable_mimo_power_save"):
+        tweaks.append(("MIMO Power Save Mode", 3))
 
     for value_name, new_val in tweaks:
         backup[value_name] = _read_reg(adapter_key, value_name)
