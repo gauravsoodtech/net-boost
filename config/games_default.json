@@ -1,0 +1,42 @@
+[
+    {
+        "name": "Valorant",
+        "exe": "VALORANT-Win64-Shipping.exe"
+    },
+    {
+        "name": "CS2",
+        "exe": "cs2.exe"
+    },
+    {
+        "name": "Apex Legends",
+        "exe": "r5apex.exe"
+    },
+    {
+        "name": "Fortnite",
+        "exe": "FortniteClient-Win64-Shipping.exe"
+    },
+    {
+        "name": "Overwatch 2",
+        "exe": "Overwatch.exe"
+    },
+    {
+        "name": "League of Legends",
+        "exe": "League of Legends.exe"
+    },
+    {
+        "name": "Dota 2",
+        "exe": "dota2.exe"
+    },
+    {
+        "name": "Rocket League",
+        "exe": "RocketLeague.exe"
+    },
+    {
+        "name": "Rainbow Six Siege",
+        "exe": "RainbowSix.exe"
+    },
+    {
+        "name": "Warzone",
+        "exe": "cod.exe"
+    }
+]

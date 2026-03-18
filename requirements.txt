@@ -1,0 +1,5 @@
+PyQt5==5.15.11
+PyQtGraph==0.13.7
+psutil==6.1.0
+pywin32==308
+pyinstaller==6.11.0
