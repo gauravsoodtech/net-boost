@@ -238,7 +238,7 @@ def apply(settings: dict) -> dict:
     Pause/stop services and suspend processes according to *settings*.
 
     Settings keys consumed (all bool):
-    - ``pause_wupdate``  — pause/stop Windows Update (wuauserv)
+    - ``pause_windows_update``  — pause/stop Windows Update (wuauserv)
     - ``pause_bits``     — pause/stop BITS
     - ``pause_onedrive`` — pause/stop OneSyncSvc_* services + suspend OneDrive.exe
 
@@ -253,7 +253,7 @@ def apply(settings: dict) -> dict:
     }
 
     # --- Windows Update ---
-    if settings.get("pause_wupdate"):
+    if settings.get("pause_windows_update"):
         entry = _pause_or_stop_service("wuauserv")
         backup["services_backup"].append(entry)
 

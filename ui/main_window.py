@@ -252,7 +252,7 @@ class MainWindow(QMainWindow):
                 self._game_mode_applied = False
             except Exception as e:
                 logger.error(f"restore_all failed: {e}")
-        self._toast.show_message("Game Mode: settings restored", "error")
+        self._toast.show_message("Game Mode: settings restored", "info")
 
     # ------------------------------------------------------------------ Wi-Fi
 
@@ -327,6 +327,24 @@ class MainWindow(QMainWindow):
             backup = self._fps_booster.apply(settings, game_pid=game_pid)
             if self.state_guard:
                 self.state_guard.record_fps_backup(backup)
+
+            # Apply GPU settings via nvidia_optimizer (FPS tab GPU rows)
+            if settings.get("nvidia_max_perf") or settings.get("nvidia_ull") or settings.get("disable_hags"):
+                try:
+                    from core.nvidia_optimizer import NvidiaOptimizer
+                    if self._nvidia_optimizer is None:
+                        self._nvidia_optimizer = NvidiaOptimizer()
+                    nvidia_settings = {
+                        "max_power":          settings.get("nvidia_max_perf", False),
+                        "ull_mode":           settings.get("nvidia_ull", False),
+                        "disable_hags":       settings.get("disable_hags", False),
+                    }
+                    nvidia_backup = self._nvidia_optimizer.apply(nvidia_settings)
+                    if self.state_guard:
+                        self.state_guard.record_nvidia_backup(nvidia_backup)
+                except Exception as e:
+                    logger.warning(f"NVIDIA optimizer apply failed: {e}")
+
             self._set_status("FPS optimizations applied")
         except Exception as e:
             logger.error(f"FPS apply error: {e}")
@@ -411,7 +429,6 @@ class MainWindow(QMainWindow):
                     self._background_killer = BackgroundKiller()
                 backup = self._background_killer.apply(settings)
                 if self.state_guard:
-                    state = self.state_guard.get_state()
                     for svc in backup.get("services_backup", []):
                         self.state_guard.add_paused_service(svc["name"])
                     for pid in backup.get("suspended_pids", []):

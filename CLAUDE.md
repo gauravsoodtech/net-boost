@@ -220,7 +220,9 @@ Custom DNS fields are passed as `dns_primary` / `dns_secondary` (not `custom_dns
 
 ## Tab Key Name Mapping (FPS Booster)
 
-UI toggle keys in `tab_fps.py` must match what `core/fps_booster.apply()` checks:
+UI toggle keys in `tab_fps.py` are routed to **two** core modules by `MainWindow._apply_fps()`:
+
+**CPU/Windows rows → `core/fps_booster.apply()`:**
 
 | UI key (`_toggle_rows`) | `fps_booster.apply()` key |
 |---|---|
@@ -231,6 +233,16 @@ UI toggle keys in `tab_fps.py` must match what `core/fps_booster.apply()` checks
 | `sysmain_off` | `sysmain_off` |
 | `visual_effects_off` | `visual_effects_off` |
 | `fullscreen_opt_off` | `fullscreen_opt_off` |
+
+**GPU rows → `core/nvidia_optimizer.apply()` (key translation happens in `_apply_fps()`):**
+
+| UI key (`_toggle_rows`) | `nvidia_optimizer.apply()` key |
+|---|---|
+| `nvidia_max_perf` | `max_power` |
+| `nvidia_ull` | `ull_mode` |
+| `disable_hags` | `disable_hags` |
+
+`disable_hags` sets `HKLM\SYSTEM\CurrentControlSet\Control\GraphicsDrivers\HwSchMode = 1`. **Requires a reboot to take effect.**
 
 ## Tab Key Name Mapping (Optimizer)
 
@@ -251,6 +263,10 @@ Key implementation notes:
 
 ## Common Pitfalls
 
+- `BackgroundKiller.apply()` checks `pause_windows_update` (not `pause_wupdate`) — always use the full key name
+- `NvidiaOptimizer` is called from `_apply_fps()`, not `_apply_optimizer()` — GPU rows live in the FPS tab but route to `nvidia_optimizer`
+- `disable_hags` writes to `GraphicsDrivers\HwSchMode` and requires a reboot — the registry write succeeds immediately but HAGS stays active until restart
+- Timer resolution restore value is `156250` (15.625ms × 100ns) — **not** 156001 or 15600
 - `wuauserv` on Windows 11 often doesn't support PAUSE → `BackgroundKiller` falls back to Stop
 - ICMP raw socket requires admin (satisfied) but may be blocked by some AV → falls back to `ping.exe`
 - DSCP marking is ignored by most home routers — the service suspension is the actual bandwidth win

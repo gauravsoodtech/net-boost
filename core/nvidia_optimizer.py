@@ -26,6 +26,7 @@ _NVIDIA_SMI_PATHS = [
 _NVTWEAK_GLOBAL_HKLM = r"SYSTEM\CurrentControlSet\Services\nvlddmkm\Global\NVTweak"
 _NVTWEAK_SOFTWARE   = r"SOFTWARE\NVIDIA Corporation\Global\NVTweak"
 _VIDEO_BASE         = r"SYSTEM\CurrentControlSet\Control\Video"
+_GRAPHICS_DRIVERS   = r"SYSTEM\CurrentControlSet\Control\GraphicsDrivers"
 
 
 # ---------------------------------------------------------------------------
@@ -231,6 +232,18 @@ def apply(settings: dict) -> dict:
             except OSError:
                 pass
 
+    # --- Hardware-Accelerated GPU Scheduling (HAGS) ---
+    # HwSchMode: 2 = enabled (default), 1 = disabled
+    if settings.get("disable_hags"):
+        subkey = _GRAPHICS_DRIVERS
+        vname  = "HwSchMode"
+        backup[f"hklm:{subkey}:{vname}"] = _read_reg(winreg.HKEY_LOCAL_MACHINE, subkey, vname)
+        try:
+            _write_reg(winreg.HKEY_LOCAL_MACHINE, subkey, vname, 1)
+            logger.info("nvidia_optimizer: HAGS disabled (requires reboot to take effect).")
+        except OSError:
+            pass
+
     # --- nvidia-smi persistent mode ---
     smi_available = is_nvidia_smi_available()
     if smi_available:
@@ -269,3 +282,17 @@ def restore(backup: dict) -> None:
             logger.warning("nvidia_optimizer: nvidia-smi -pm 0 failed: %s", exc)
 
     logger.info("nvidia_optimizer: restore() complete.")
+
+
+# ---------------------------------------------------------------------------
+# NvidiaOptimizer class — object-oriented wrapper used by the UI
+# ---------------------------------------------------------------------------
+
+class NvidiaOptimizer:
+    """Object-oriented interface for NVIDIA optimization (wraps module functions)."""
+
+    def apply(self, settings: dict) -> dict:
+        return apply(settings)
+
+    def restore(self, backup: dict) -> None:
+        restore(backup)

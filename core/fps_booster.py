@@ -25,17 +25,15 @@ logger = logging.getLogger(__name__)
 # Constants
 # ---------------------------------------------------------------------------
 
-ULTIMATE_PERF_GUID  = "e9a42b02-d5df-448d-aa00-03f14749eb61"
-HIGH_PRIORITY_CLASS = 0x0080
-PROCESS_ALL_ACCESS  = 0x1F0FFF
+ULTIMATE_PERF_GUID = "e9a42b02-d5df-448d-aa00-03f14749eb61"
+PROCESS_ALL_ACCESS = 0x1F0FFF
 
 # Registry paths
 _GAME_DVR_KEY      = r"Software\Microsoft\Windows\CurrentVersion\GameDVR"
 _APP_COMPAT_LAYERS = r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
 
 # ctypes / Win32 constants
-_SPI_SETANIMATION  = 0x0049
-_ANIMATIONINFO_SIZE = ctypes.sizeof(ctypes.c_uint) * 2  # cbSize + iMinAnimate
+_SPI_SETANIMATION = 0x0049
 
 
 # ---------------------------------------------------------------------------
@@ -431,10 +429,10 @@ def restore(backup: dict) -> None:
         except Exception as exc:
             logger.error("fps_booster: restore affinity failed: %s", exc)
 
-    # --- Timer resolution (restore to default 15.6 ms = 156001 × 100ns) ---
+    # --- Timer resolution (restore to default 15.625 ms = 156250 × 100ns) ---
     if backup.get("timer_resolution_applied"):
         try:
-            set_timer_resolution(156001)
+            set_timer_resolution(156250)
         except Exception as exc:
             logger.warning("fps_booster: restore timer resolution failed: %s", exc)
 
