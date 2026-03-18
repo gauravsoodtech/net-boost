@@ -10,6 +10,7 @@
 [![PyQt5](https://img.shields.io/badge/PyQt5-5.15.11-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://pypi.org/project/PyQt5/)
 [![Windows](https://img.shields.io/badge/Windows_11-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
+[![Built with Claude](https://img.shields.io/badge/Built%20with-Claude%20AI-D97706?style=for-the-badge&logo=anthropic&logoColor=white)](https://claude.ai)
 
 ![NetBoost Dashboard](https://i.imgur.com/placeholder.png)
 
@@ -248,6 +249,31 @@ Built and tested on:
 - **OS:** Windows 11 Build 26200
 
 Works on any Windows 10/11 system. Wi-Fi optimizations require an Intel Wi-Fi adapter; other features work universally.
+
+---
+
+## Built with Generative AI
+
+This project was designed and built with **[Claude](https://claude.ai) (Anthropic)** as an AI pair programmer, using **[Claude Code](https://claude.ai/code)** — Anthropic's agentic coding CLI.
+
+### How AI was used
+
+| What | How Claude helped |
+|------|------------------|
+| **Architecture design** | Designed the full module structure, threading model, and signal flow before writing a single line |
+| **Core implementation** | Wrote all 13 core optimizer modules — registry tweaks, service control, ICMP monitor, crash-safe state guard |
+| **UI layer** | Built the entire PyQt5 interface — 8 tabs, animated toggle switches, PyQtGraph live graphs, system tray |
+| **Windows internals** | Identified the exact Intel AX211 registry keys, P-core affinity masks, NtSetTimerResolution API calls |
+| **Test suite** | Generated 4 unit test files + integration check script with mocked subprocess/registry |
+| **Documentation** | Wrote this README and the CLAUDE.md developer guide |
+
+### Workflow
+
+The entire codebase (~9,500 lines across 45 files) was generated in a single session using Claude Code's agentic mode — Claude autonomously wrote files, ran parallel agents for different layers, and self-corrected import mismatches without manual intervention.
+
+> **My role:** Defined the problem (Wi-Fi ping spikes on my gaming laptop), specified the target hardware (i7-13650HX, RTX 4060, Intel AX211), described the desired UX, and reviewed the output. Claude handled research, implementation, and wiring.
+
+This is an example of **vibe coding** at scale — using AI to implement a technically deep, Windows-specific tool that would have taken weeks to build manually.
 
 ---
 
