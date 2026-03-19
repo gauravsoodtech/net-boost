@@ -425,11 +425,18 @@ class MainWindow(QMainWindow):
         self._gpu_temp_timer.stop()
         self._gpu_throttle_alerted = False
         try:
-            if self._fps_booster and self.state_guard:
+            if self.state_guard:
                 state = self.state_guard.get_state()
-                backup = state.get("fps_backup", {})
-                if backup:
-                    self._fps_booster.restore(backup)
+                fps_backup = state.get("fps_backup", {})
+                if fps_backup and self._fps_booster:
+                    self._fps_booster.restore(fps_backup)
+                nvidia_backup = state.get("nvidia_backup", {})
+                if nvidia_backup:
+                    from core.nvidia_optimizer import NvidiaOptimizer
+                    if self._nvidia_optimizer is None:
+                        self._nvidia_optimizer = NvidiaOptimizer()
+                    self._nvidia_optimizer.restore(nvidia_backup)
+                if fps_backup or nvidia_backup:
                     self._set_status("FPS settings restored")
         except Exception as e:
             logger.error(f"FPS restore error: {e}")
@@ -531,7 +538,49 @@ class MainWindow(QMainWindow):
         self.tab_monitor.update_applied_settings(self._applied_settings)
         try:
             if self.state_guard:
-                self.state_guard.restore_all()
+                state = self.state_guard.get_state()
+
+                # DNS
+                dns_backup = state.get("dns_backup") or {}
+                if dns_backup:
+                    try:
+                        from core.dns_switcher import DnsSwitcher
+                        if self._dns_switcher is None:
+                            self._dns_switcher = DnsSwitcher()
+                        self._dns_switcher.restore(dns_backup)
+                    except Exception as e:
+                        logger.error(f"DNS restore error: {e}")
+
+                # TCP
+                tcp_backup = state.get("tcp_backup") or {}
+                if tcp_backup:
+                    try:
+                        from core.network_optimizer import NetworkOptimizer
+                        if self._network_optimizer is None:
+                            self._network_optimizer = NetworkOptimizer()
+                        self._network_optimizer.restore(tcp_backup)
+                    except Exception as e:
+                        logger.error(f"TCP restore error: {e}")
+
+                # Background killer — resume services and suspended pids
+                paused_services = state.get("paused_services") or []
+                suspended_pids = state.get("suspended_pids") or []
+                if paused_services or suspended_pids:
+                    try:
+                        from core.background_killer import resume_service, resume_process
+                        for svc in paused_services:
+                            try:
+                                resume_service(svc)
+                            except Exception:
+                                pass
+                        for pid in suspended_pids:
+                            try:
+                                resume_process(pid)
+                            except Exception:
+                                pass
+                    except Exception as e:
+                        logger.error(f"Services restore error: {e}")
+
                 self._set_status("Network settings restored")
                 self._toast.show_message("Network settings restored", "success")
         except Exception as e:

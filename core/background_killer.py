@@ -22,13 +22,6 @@ logger = logging.getLogger(__name__)
 # Configuration
 # ---------------------------------------------------------------------------
 
-# Services to pause (or stop) during a gaming session.
-SERVICES_TO_PAUSE = [
-    "wuauserv",   # Windows Update
-    "BITS",       # Background Intelligent Transfer Service
-    "WSearch",    # Windows Search
-]
-
 # Prefix for per-user OneDrive sync services (enumerated dynamically).
 ONESYNC_PREFIX = "OneSyncSvc"
 

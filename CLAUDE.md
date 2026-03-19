@@ -195,6 +195,11 @@ All three optimizer tabs (Wi-Fi, FPS Boost, Optimizer) have a "Restore Defaults"
 
 Key: Restore resets toggles to ON, not OFF — "restore" means undo system changes, not disable the UI.
 
+**Per-tab restore scope** — each tab's restore is intentionally narrow; it only undoes its own backups and never touches other tabs' state:
+- `_on_wifi_restore()` → reads `wifi_backup` from state → calls `WifiOptimizer.restore()`
+- `_on_fps_restore()` → reads `fps_backup` AND `nvidia_backup` from state → calls `FpsBooster.restore()` then `NvidiaOptimizer.restore()` (both must be restored together because FPS apply writes both)
+- `_on_optimizer_restore()` → reads `dns_backup`, `tcp_backup`, `paused_services`, `suspended_pids` from state → calls targeted restores on `DnsSwitcher`, `NetworkOptimizer`, `resume_service`, `resume_process` — does **not** call `restore_all()` (which would also wipe Wi-Fi/FPS backups and delete state.json)
+
 ## Game Mode
 
 Game Mode (Dashboard toggle) applies all tab settings automatically when enabled:
@@ -407,3 +412,6 @@ All profile fields and their canonical keys (as of current schema):
 - `_deactivate_game_mode()` must guard on `_game_mode_applied` flag — calling `restore_all()` unconditionally wipes manually applied settings
 - `TabDashboard.set_game_mode()` uses `blockSignals(True)` — calling it alone does NOT activate Game Mode logic; must also call `MainWindow._on_game_mode_toggled()` directly (as the tray does)
 - `OneDrive.exe` must NOT be in `PROCESSES_TO_SUSPEND` — it is handled conditionally inside the `pause_onedrive` block; listing it in both places would suspend it unconditionally and twice
+- `_on_optimizer_restore()` must NOT call `state_guard.restore_all()` — that function restores all tabs and deletes state.json, destroying Wi-Fi and FPS backups. Use targeted restores on DNS/TCP/services only
+- `_on_fps_restore()` must restore **both** `fps_backup` (via `FpsBooster`) and `nvidia_backup` (via `NvidiaOptimizer`) — `_apply_fps()` writes to both; restoring only one leaves NVIDIA registry changes live
+- `background_killer.py` has no `SERVICES_TO_PAUSE` constant — services (wuauserv, BITS, OneSyncSvc) are handled by explicit `settings.get()` blocks inside `apply()`, not by iterating a shared list
