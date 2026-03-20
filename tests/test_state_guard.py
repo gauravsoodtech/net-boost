@@ -54,15 +54,25 @@ class TestStateGuard:
 
     def test_atomic_write_uses_tmp_file(self, guard, tmp_appdata):
         """save_state() should use atomic write (no leftover .tmp file)."""
+        import pathlib
+        from core.state_guard import _STATE_DIR, _STATE_FILE
+
         state = {"pid": os.getpid()}
         guard.save_state(state)
 
-        nb_dir = tmp_appdata / "NetBoost"
-        files = list(nb_dir.glob("*.tmp"))
+        # _STATE_DIR/_STATE_FILE are resolved at module import time, so check those paths.
+        state_dir = pathlib.Path(_STATE_DIR)
+        files = list(state_dir.glob("*.tmp"))
         assert len(files) == 0, "Temporary .tmp files should be cleaned up"
 
-        state_file = nb_dir / "state.json"
+        state_file = pathlib.Path(_STATE_FILE)
         assert state_file.exists()
+
+        # cleanup — don't leave test state in real APPDATA
+        try:
+            state_file.unlink()
+        except FileNotFoundError:
+            pass
 
     def test_clear_removes_state_file(self, guard, tmp_appdata):
         """clear() removes state.json from disk."""
@@ -90,7 +100,8 @@ class TestStateGuard:
         guard.save_state(state)
 
         with patch("psutil.pid_exists", return_value=False):
-            with patch.object(guard, "restore_all") as mock_restore:
+            # Patch the module-level restore_all — that's what check_and_heal() calls directly.
+            with patch("core.state_guard.restore_all") as mock_restore:
                 healed = guard.check_and_heal()
 
         assert healed is True

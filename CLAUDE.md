@@ -25,7 +25,7 @@ tests/                      # pytest unit tests + integration check script
 - Main thread: Qt event loop + all UI updates
 - `QThread`: `PingMonitor` → emits `reading(host, ms, timed_out)`
 - `QThread`: `ProcessWatcher` → emits `game_launched(str)` / `game_exited(str)`
-- `QThreadPool`: slow service stop/start operations
+- `QThreadPool`: slow operations — Wi-Fi latency test (`_LatencyWorker`), RAM poll (`_RamPollWorker`), RAM optimize (`_RamOptimizeWorker`), service stop/start
 
 **Signal flow:** Core threads → Qt signals → `MainWindow` slots → UI tab methods. Never call UI methods directly from background threads.
 
@@ -39,7 +39,7 @@ tests/                      # pytest unit tests + integration check script
 | `core/state_guard.py` | Crash-safe atomic state (`.tmp` → `os.replace`) | `StateGuard` |
 | `core/profile_manager.py` | JSON profiles in `%APPDATA%\NetBoost\profiles\` | `ProfileManager` |
 | `core/ping_monitor.py` | Raw ICMP socket, fallback to `ping.exe` | `PingMonitor(QThread)` |
-| `core/process_watcher.py` | psutil polling every 1.5s | `ProcessWatcher(QThread)` |
+| `core/process_watcher.py` | psutil polling every 1.5s; `set_poll_interval(ms)` for runtime adjustment | `ProcessWatcher(QThread)` |
 | `core/wifi_optimizer.py` | Intel AX211 registry tweaks | `WifiOptimizer` |
 | `core/network_optimizer.py` | TCP registry per interface GUID | `NetworkOptimizer` |
 | `core/dns_switcher.py` | netsh DNS switch/restore | `DnsSwitcher` |
@@ -415,3 +415,8 @@ All profile fields and their canonical keys (as of current schema):
 - `_on_optimizer_restore()` must NOT call `state_guard.restore_all()` — that function restores all tabs and deletes state.json, destroying Wi-Fi and FPS backups. Use targeted restores on DNS/TCP/services only
 - `_on_fps_restore()` must restore **both** `fps_backup` (via `FpsBooster`) and `nvidia_backup` (via `NvidiaOptimizer`) — `_apply_fps()` writes to both; restoring only one leaves NVIDIA registry changes live
 - `background_killer.py` has no `SERVICES_TO_PAUSE` constant — services (wuauserv, BITS, OneSyncSvc) are handled by explicit `settings.get()` blocks inside `apply()`, not by iterating a shared list
+- `bandwidth_manager.get_running_processes()` does NOT set `is_game` — `_on_bandwidth_refresh()` in `MainWindow` adds `proc["is_game"]` by checking `process_watcher._watch_set`; do not expect `is_game` to come from the backend
+- `proc_poll_interval_ms` from `tab_settings` is applied via `process_watcher.set_poll_interval(ms)` in `_on_settings_changed` — `ProcessWatcher` stores it in `_poll_interval_ms` and picks it up on the next sleep cycle
+- `PingMonitor._history` stores `(latency_ms, timed_out)` tuples — never plain floats; `get_jitter()` and `get_loss_pct()` both unpack the tuple
+- `on_ping_reading` in `MainWindow` passes `latency_ms` directly to `add_reading` regardless of `timed_out`; the `timed_out` flag is passed separately — do not substitute `None` for `latency_ms`
+- Dashboard `update_ping_stats(ping, jitter, loss)` accepts `None` for `ping`/`jitter` when offline — shows "--" badge instead of 0.0; always pass `None` when `_ping_history` is empty

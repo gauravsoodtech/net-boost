@@ -134,6 +134,10 @@ class ProcessWatcher(QThread):
         self._running = False
         logger.debug("ProcessWatcher stop requested.")
 
+    def set_poll_interval(self, ms: int) -> None:
+        """Change the poll interval in milliseconds.  Takes effect on the next sleep cycle."""
+        self._poll_interval_ms = ms
+
     def set_game_list(self, game_list: List[str]) -> None:
         """
         Update the list of watched executables at runtime.

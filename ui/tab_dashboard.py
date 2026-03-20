@@ -131,7 +131,7 @@ class TabDashboard(QWidget):
         self._badge_ping   = _StatBadge("Current Ping", "ms")
         self._badge_jitter = _StatBadge("Jitter", "ms")
         self._badge_loss   = _StatBadge("Packet Loss", "%")
-        self._badge_ram    = _StatBadge("RAM Freed", "MB")
+        self._badge_ram    = _StatBadge("Free RAM", "MB")
 
         for col, badge in enumerate([
             self._badge_ping, self._badge_jitter,
@@ -180,21 +180,23 @@ class TabDashboard(QWidget):
 
     # ---------------------------------------------------------- Public API ------
 
-    def update_ping_stats(self, ping: float, jitter: float, loss: float) -> None:
-        """Update the three latency stat badges."""
-        self._badge_ping.set_value(ping)
-        self._badge_jitter.set_value(jitter)
-        self._badge_loss.set_value(loss)
-
-        # Colour-code ping badge
-        if ping < 30:
-            self._badge_ping.set_color("#4caf50")
-        elif ping < 80:
-            self._badge_ping.set_color("#4fc3f7")
-        elif ping < 150:
-            self._badge_ping.set_color("#ff9800")
+    def update_ping_stats(self, ping, jitter, loss: float) -> None:
+        """Update the three latency stat badges. ping/jitter are None when offline."""
+        if ping is None:
+            self._badge_ping.set_value("--")
+            self._badge_ping.set_color("#9e9e9e")
+            self._badge_jitter.set_value("--")
         else:
-            self._badge_ping.set_color("#f44336")
+            self._badge_ping.set_value(ping)
+            self._badge_jitter.set_value(jitter if jitter is not None else 0.0)
+            if ping < 30:
+                self._badge_ping.set_color("#4caf50")
+            elif ping < 80:
+                self._badge_ping.set_color("#4fc3f7")
+            elif ping < 150:
+                self._badge_ping.set_color("#ff9800")
+            else:
+                self._badge_ping.set_color("#f44336")
 
         # Colour-code loss badge
         if loss == 0:
@@ -230,6 +232,6 @@ class TabDashboard(QWidget):
     def set_battery_warning(self, on_battery: bool) -> None:
         self._battery_warning.setVisible(on_battery)
 
-    def set_ram_freed(self, mb: int) -> None:
+    def set_free_ram(self, mb: int) -> None:
         self._badge_ram.set_value(mb)
         self._badge_ram.set_color("#e040fb")

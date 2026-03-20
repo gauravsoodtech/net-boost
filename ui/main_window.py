@@ -10,10 +10,63 @@ from PyQt5.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, QVBoxLayout,
     QStatusBar, QLabel, QMessageBox, QApplication
 )
-from PyQt5.QtCore import Qt, QTimer, pyqtSlot
+from PyQt5.QtCore import Qt, QTimer, QThreadPool, QRunnable, QObject, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QCloseEvent
 
 logger = logging.getLogger(__name__)
+
+
+# ── Worker helpers (QRunnable cannot define pyqtSignal; use a QObject shim) ──
+
+class _LatencyWorkerSignals(QObject):
+    finished = pyqtSignal(float)
+    error    = pyqtSignal()
+
+class _LatencyWorker(QRunnable):
+    def __init__(self, signals, host="1.1.1.1"):
+        super().__init__()
+        self.signals = signals
+        self.host = host
+        self.setAutoDelete(True)
+    def run(self):
+        try:
+            from core.wifi_optimizer import test_latency
+            ms = test_latency(self.host)
+            if ms < 0:
+                self.signals.error.emit()
+            else:
+                self.signals.finished.emit(ms)
+        except Exception:
+            self.signals.error.emit()
+
+class _RamWorkerSignals(QObject):
+    freed    = pyqtSignal(int)   # freed_mb after optimize()
+    free_ram = pyqtSignal(int)   # current available RAM in MB
+
+class _RamPollWorker(QRunnable):
+    def __init__(self, signals):
+        super().__init__()
+        self.signals = signals
+        self.setAutoDelete(True)
+    def run(self):
+        try:
+            from core.ram_optimizer import RamOptimizer
+            self.signals.free_ram.emit(RamOptimizer().get_free_ram_mb())
+        except Exception:
+            pass
+
+class _RamOptimizeWorker(QRunnable):
+    def __init__(self, signals):
+        super().__init__()
+        self.signals = signals
+        self.setAutoDelete(True)
+    def run(self):
+        try:
+            from core.ram_optimizer import RamOptimizer
+            result = RamOptimizer().optimize()
+            self.signals.freed.emit(result.get("freed_mb", 0))
+        except Exception:
+            self.signals.freed.emit(0)
 
 
 class MainWindow(QMainWindow):
@@ -33,8 +86,16 @@ class MainWindow(QMainWindow):
         self._game_mode_applied = False   # True only if Game Mode itself applied changes
         self._game_mode_pending = False   # latest value for debounce
         self._auto_game_mode = False      # mirrors tab_settings auto_game_mode checkbox
-        self._ram_freed_mb = 0
         self.tray = None                  # set by main.py after TrayIcon is created
+
+        # Worker signal objects (created once, reused for all pool tasks)
+        self._latency_signals = _LatencyWorkerSignals()
+        self._latency_signals.finished.connect(self._on_latency_result)
+        self._latency_signals.error.connect(self._on_latency_error)
+
+        self._ram_signals = _RamWorkerSignals()
+        self._ram_signals.free_ram.connect(self._on_ram_poll_reading)
+        self._ram_signals.freed.connect(self._on_ram_optimize_done)
 
         # Optimizer instances (lazy-created when needed)
         self._wifi_optimizer = None
@@ -61,6 +122,13 @@ class MainWindow(QMainWindow):
         self._game_mode_debounce.setSingleShot(True)
         self._game_mode_debounce.setInterval(300)
         self._game_mode_debounce.timeout.connect(self._apply_game_mode_toggle)
+
+        # Free-RAM poll timer — refreshes dashboard badge every 5 seconds
+        self._ram_poll_timer = QTimer(self)
+        self._ram_poll_timer.setInterval(5000)
+        self._ram_poll_timer.timeout.connect(self._poll_free_ram)
+        self._ram_poll_timer.start()
+        QTimer.singleShot(500, self._poll_free_ram)   # populate immediately on startup
 
         # Applied-settings tracking for health diagnostics
         self._applied_settings: dict[str, dict] = {}
@@ -157,6 +225,7 @@ class MainWindow(QMainWindow):
         self.tab_monitor.host_changed.connect(self._on_host_changed)
         self.tab_wifi.settings_applied.connect(self._on_wifi_apply)
         self.tab_wifi.settings_restored.connect(self._on_wifi_restore)
+        self.tab_wifi.latency_test_requested.connect(self._on_latency_test)
         self.tab_fps.settings_applied.connect(self._on_fps_apply)
         self.tab_fps.settings_restored.connect(self._on_fps_restore)
         self.tab_optimizer.settings_applied.connect(self._on_optimizer_apply)
@@ -189,13 +258,13 @@ class MainWindow(QMainWindow):
             self._ping_history.append(latency_ms)
 
         # Compute stats
-        recent = list(self._ping_history)[-20:] if self._ping_history else [0]
-        avg_ping = sum(recent) / len(recent) if recent else 0
-        jitter = self._compute_jitter(recent)
+        recent = list(self._ping_history)[-20:]
+        avg_ping = (sum(recent) / len(recent)) if recent else None
+        jitter = self._compute_jitter(recent) if recent else None
         loss_pct = (self._loss_count / self._total_count * 100) if self._total_count > 0 else 0
 
         self.tab_dashboard.update_ping_stats(avg_ping, jitter, loss_pct)
-        self.tab_monitor.add_reading(host, latency_ms if not timed_out else None, timed_out)
+        self.tab_monitor.add_reading(host, latency_ms, timed_out)
         self._check_connectivity_health(loss_pct)
 
     def _compute_jitter(self, readings: list) -> float:
@@ -347,6 +416,21 @@ class MainWindow(QMainWindow):
                     self._set_status("Wi-Fi settings restored")
         except Exception as e:
             logger.error(f"Wi-Fi restore error: {e}")
+
+    # ── Wi-Fi Latency Test ────────────────────────────────────────────────────
+
+    @pyqtSlot()
+    def _on_latency_test(self):
+        worker = _LatencyWorker(self._latency_signals)
+        QThreadPool.globalInstance().start(worker)
+
+    @pyqtSlot(float)
+    def _on_latency_result(self, ms: float):
+        self.tab_wifi.on_latency_result(ms)
+
+    @pyqtSlot()
+    def _on_latency_error(self):
+        self.tab_wifi.on_latency_error()
 
     # ------------------------------------------------------------------ FPS
 
@@ -588,21 +672,26 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ RAM
 
+    def _poll_free_ram(self):
+        QThreadPool.globalInstance().start(_RamPollWorker(self._ram_signals))
+
+    @pyqtSlot(int)
+    def _on_ram_poll_reading(self, mb: int):
+        self.tab_dashboard.set_free_ram(mb)
+
     @pyqtSlot()
     def _on_ram_optimize(self):
-        try:
-            from core.ram_optimizer import RamOptimizer
-            if self._ram_optimizer is None:
-                self._ram_optimizer = RamOptimizer()
-            result = self._ram_optimizer.optimize()
-            freed = result.get("freed_mb", 0)
-            self._ram_freed_mb = freed
-            self.tab_optimizer.set_ram_freed(freed)
-            self.tab_dashboard.set_ram_freed(freed)
-            self._set_status(f"RAM freed: {freed} MB")
-        except Exception as e:
-            logger.error(f"RAM optimizer error: {e}")
-            self._set_status(f"RAM optimizer error: {e}")
+        self.tab_optimizer._free_ram_btn.setEnabled(False)
+        self.tab_optimizer._free_ram_btn.setText("Working...")
+        QThreadPool.globalInstance().start(_RamOptimizeWorker(self._ram_signals))
+
+    @pyqtSlot(int)
+    def _on_ram_optimize_done(self, freed_mb: int):
+        self.tab_optimizer._free_ram_btn.setEnabled(True)
+        self.tab_optimizer._free_ram_btn.setText("Free RAM Now")
+        self.tab_optimizer.set_ram_freed(freed_mb)
+        self._set_status(f"RAM freed: {freed_mb} MB")
+        self._poll_free_ram()
 
     # ------------------------------------------------------------------ Bandwidth
 
@@ -613,6 +702,9 @@ class MainWindow(QMainWindow):
             if self._bandwidth_manager is None:
                 self._bandwidth_manager = BandwidthManager()
             processes = self._bandwidth_manager.get_running_processes()
+            watch_set = self.process_watcher._watch_set if self.process_watcher else set()
+            for proc in processes:
+                proc["is_game"] = proc.get("name", "").lower() in watch_set
             self.tab_bandwidth.refresh_processes(processes)
         except Exception as e:
             logger.error(f"Bandwidth refresh error: {e}")
@@ -762,6 +854,9 @@ class MainWindow(QMainWindow):
         if self.ping_monitor:
             interval = settings.get("ping_interval_ms", 500)
             self.ping_monitor.set_interval(interval)
+        if self.process_watcher:
+            proc_interval = settings.get("proc_poll_interval_ms", 1500)
+            self.process_watcher.set_poll_interval(proc_interval)
         self._auto_game_mode = settings.get("auto_game_mode", False)
 
     @pyqtSlot(list)

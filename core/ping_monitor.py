@@ -188,8 +188,10 @@ class PingMonitor(QThread):
             logger.warning("ping.exe subprocess failed: %s", exc)
             return -1.0, True
 
-        stdout = result.stdout
+        return self._parse_ping_output(result.stdout)
 
+    def _parse_ping_output(self, stdout: str) -> Tuple[float, bool]:
+        """Parse ``ping.exe`` stdout and return ``(latency_ms, timed_out)``."""
         # "time<1ms" edge case — treat as 0.5 ms.
         if re.search(r"time<1ms", stdout, re.IGNORECASE):
             return 0.5, False

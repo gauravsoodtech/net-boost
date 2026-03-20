@@ -67,6 +67,9 @@ The Intel AX211 aggressively power-saves and background-scans by default, causin
 
 ### 📊 Live Monitor
 - Real-time ping/jitter/packet loss graph (PyQtGraph, 60s rolling window)
+- Dashboard badges update live every ~500ms — shows "--" when offline instead of a false 0.0
+- Free RAM badge refreshes every 5 seconds; game processes highlighted green in Bandwidth tab
+- Wi-Fi **Test Latency** button runs async (no UI freeze) and shows Before → After ms
 - Auto game detection — activates in **<1.5 seconds** of game launch
 - System tray: grey (idle) → yellow (game detected) → green (optimized)
 

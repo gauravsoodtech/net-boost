@@ -72,8 +72,9 @@ class TabWifi(QWidget):
     settings_restored()     — emitted when user clicks "Restore Defaults"
     """
 
-    settings_applied  = pyqtSignal(dict)
-    settings_restored = pyqtSignal()
+    settings_applied      = pyqtSignal(dict)
+    settings_restored     = pyqtSignal()
+    latency_test_requested = pyqtSignal()
 
     # Ordered list of (key, label, badge, tooltip)
     _TOGGLES = [
@@ -89,6 +90,7 @@ class TabWifi(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._toggle_rows: dict[str, _ToggleRow] = {}
+        self._before_set = False
         self._build_ui()
 
     # --------------------------------------------------------- UI construction --
@@ -182,6 +184,7 @@ class TabWifi(QWidget):
 
         self._test_btn = QPushButton("Test Latency")
         self._test_btn.setFixedWidth(120)
+        self._test_btn.clicked.connect(self._on_test_latency)
 
         lat_layout.addWidget(before_lbl)
         lat_layout.addWidget(self._before_val)
@@ -227,6 +230,11 @@ class TabWifi(QWidget):
         self.settings_restored.emit()
         self.set_settings({key: True for key in self._toggle_rows})
 
+    def _on_test_latency(self) -> None:
+        self._test_btn.setEnabled(False)
+        self._test_btn.setText("Testing...")
+        self.latency_test_requested.emit()
+
     # ---------------------------------------------------------- Public API ------
 
     def get_settings(self) -> dict:
@@ -247,6 +255,20 @@ class TabWifi(QWidget):
 
     def set_latency_after(self, ms: float) -> None:
         self._after_val.setText(f"{ms:.1f} ms")
+
+    def on_latency_result(self, ms: float) -> None:
+        if not self._before_set:
+            self.set_latency_before(ms)
+            self._before_set = True
+        else:
+            self.set_latency_after(ms)
+            self._before_set = False
+        self._test_btn.setEnabled(True)
+        self._test_btn.setText("Test Latency")
+
+    def on_latency_error(self) -> None:
+        self._test_btn.setEnabled(True)
+        self._test_btn.setText("Test Latency")
 
     def mark_applied(self, settings: dict) -> None:
         """Show ● Active badge on each toggle that was ON when Apply was clicked."""

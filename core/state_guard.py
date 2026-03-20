@@ -331,6 +331,12 @@ def get_state() -> dict:
 class StateGuard:
     """Thin class wrapper around the module-level state functions."""
 
+    def save_state(self, state_dict: dict) -> None:
+        save_state(state_dict)
+
+    def load_state(self) -> dict:
+        return load_state()
+
     def check_and_heal(self) -> bool:
         return check_and_heal()
 

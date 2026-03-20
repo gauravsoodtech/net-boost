@@ -10,6 +10,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from unittest.mock import patch, MagicMock
+from PyQt5.QtCore import Qt
 
 
 # We need a QApplication for QThread
@@ -38,16 +39,14 @@ class TestPingMonitorMath:
     def test_jitter_single_reading(self, qt_app):
         """Single reading → jitter = 0."""
         m = self._make_monitor()
-        m._history.append(20.0)
-        m._total_readings = 1
+        m._history.append((20.0, False))
         assert m.get_jitter() == 0.0
 
     def test_jitter_uniform_readings(self, qt_app):
         """Uniform latency → jitter = 0."""
         m = self._make_monitor()
         for _ in range(10):
-            m._history.append(30.0)
-            m._total_readings += 1
+            m._history.append((30.0, False))
         assert m.get_jitter() == pytest.approx(0.0, abs=1e-9)
 
     def test_jitter_varying_readings(self, qt_app):
@@ -55,9 +54,8 @@ class TestPingMonitorMath:
         m = self._make_monitor()
         readings = [10.0, 20.0, 10.0, 20.0]  # alternates by 10ms
         for r in readings:
-            m._history.append(r)
-            m._total_readings += 1
-        # jitter = mean absolute deviation between successive values
+            m._history.append((r, False))
+        # jitter = std dev of successful readings
         jitter = m.get_jitter()
         assert jitter > 0.0
 
@@ -65,22 +63,23 @@ class TestPingMonitorMath:
         """No timeouts → 0% loss."""
         m = self._make_monitor()
         for _ in range(10):
-            m._total_readings += 1
-        m._timed_out_count = 0
+            m._history.append((30.0, False))
         assert m.get_loss_pct() == pytest.approx(0.0)
 
     def test_packet_loss_fifty_pct(self, qt_app):
         """5 timeouts out of 10 → 50% loss."""
         m = self._make_monitor()
-        m._total_readings = 10
-        m._timed_out_count = 5
+        for _ in range(5):
+            m._history.append((30.0, False))
+        for _ in range(5):
+            m._history.append((-1.0, True))
         assert m.get_loss_pct() == pytest.approx(50.0)
 
     def test_packet_loss_100_pct(self, qt_app):
         """All timeouts → 100% loss."""
         m = self._make_monitor()
-        m._total_readings = 5
-        m._timed_out_count = 5
+        for _ in range(5):
+            m._history.append((-1.0, True))
         assert m.get_loss_pct() == pytest.approx(100.0)
 
     def test_rolling_window_max_size(self, qt_app):
@@ -171,7 +170,9 @@ class TestPingMonitorSignal:
             received.append((host, ms, timed_out))
             m.stop()  # stop after first reading
 
-        m.reading.connect(capture)
+        # DirectConnection: signal delivered in the emitting thread,
+        # bypassing the event queue (which isn't pumped while wait() blocks).
+        m.reading.connect(capture, Qt.DirectConnection)
 
         # Mock _ping to return fixed value
         m._ping = lambda h: (42.0, False)
@@ -195,7 +196,7 @@ class TestPingMonitorSignal:
             received.append((host, ms, timed_out))
             m.stop()
 
-        m.reading.connect(capture)
+        m.reading.connect(capture, Qt.DirectConnection)
         m._ping = lambda h: (0.0, True)
         m.start()
         m.wait(3000)
