@@ -420,3 +420,7 @@ All profile fields and their canonical keys (as of current schema):
 - `PingMonitor._history` stores `(latency_ms, timed_out)` tuples — never plain floats; `get_jitter()` and `get_loss_pct()` both unpack the tuple
 - `on_ping_reading` in `MainWindow` passes `latency_ms` directly to `add_reading` regardless of `timed_out`; the `timed_out` flag is passed separately — do not substitute `None` for `latency_ms`
 - Dashboard `update_ping_stats(ping, jitter, loss)` accepts `None` for `ping`/`jitter` when offline — shows "--" badge instead of 0.0; always pass `None` when `_ping_history` is empty
+- `_check_gpu_temp` was removed — GPU temp polling is now fully async via `_GpuTempPollWorker` (QRunnable) spawned by `_poll_gpu_temp`; `_on_gpu_temp(temp)` receives the result on the main thread via signal. Never run `nvidia-smi` directly on the Qt main thread — it blocks for 100–300ms and causes ping display flutter
+- Monitor graph `add_reading()` on timeout must NOT plot `0.0` — use the running average (`self._sum_ping / self._count`) so timeouts render as a flat line rather than a downward spike to zero
+- `_apply_fps()` game PID lookup (psutil loop) is wrapped in its own inner `try/except` separate from the outer FPS apply block — a transient `AccessDenied` from psutil must not prevent FPS settings from being applied
+- `MsMpEng.exe` (Windows Defender) must NOT be in `PROCESSES_TO_SUSPEND` — suspending it degrades Windows Network Inspection Service and causes Windows health-check interference that manifests as in-game latency spikes
