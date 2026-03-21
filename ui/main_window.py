@@ -68,6 +68,26 @@ class _RamOptimizeWorker(QRunnable):
         except Exception:
             self.signals.freed.emit(0)
 
+class _GpuTempWorkerSignals(QObject):
+    temp = pyqtSignal(int)   # GPU temp in Celsius; -1 on failure
+
+class _GpuTempPollWorker(QRunnable):
+    def __init__(self, signals):
+        super().__init__()
+        self.signals = signals
+        self.setAutoDelete(True)
+    def run(self):
+        try:
+            import subprocess
+            result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=temperature.gpu",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=3,
+            )
+            self.signals.temp.emit(int(result.stdout.strip()))
+        except Exception:
+            self.signals.temp.emit(-1)
+
 
 class MainWindow(QMainWindow):
     def __init__(self, state_guard=None, profile_manager=None, parent=None):
@@ -145,7 +165,9 @@ class MainWindow(QMainWindow):
         # GPU temperature polling (5s; only while nvidia settings are applied)
         self._gpu_temp_timer = QTimer(self)
         self._gpu_temp_timer.setInterval(5000)
-        self._gpu_temp_timer.timeout.connect(self._check_gpu_temp)
+        self._gpu_temp_signals = _GpuTempWorkerSignals()
+        self._gpu_temp_signals.temp.connect(self._on_gpu_temp)
+        self._gpu_temp_timer.timeout.connect(self._poll_gpu_temp)
         self._gpu_throttle_alerted = False
 
     # ------------------------------------------------------------------ UI setup
@@ -384,7 +406,8 @@ class MainWindow(QMainWindow):
             self._toast.show_message("Wi-Fi optimizations applied", "success")
             self._applied_settings["wifi"] = settings
             self.tab_monitor.update_applied_settings(self._applied_settings)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Wi-Fi apply failed: {e}")
             self.tab_wifi.show_apply_error()
             self._toast.show_message("Wi-Fi apply failed", "error")
 
@@ -455,7 +478,8 @@ class MainWindow(QMainWindow):
             self.tab_monitor.update_applied_settings(self._applied_settings)
             if settings.get("nvidia_max_perf") or settings.get("nvidia_ull"):
                 self._gpu_temp_timer.start()
-        except Exception:
+        except Exception as e:
+            logger.error(f"FPS apply failed: {e}")
             self.tab_fps.show_apply_error()
             self._toast.show_message("FPS apply failed", "error")
 
@@ -465,14 +489,17 @@ class MainWindow(QMainWindow):
             if self._fps_booster is None:
                 self._fps_booster = FpsBooster()
 
-            # Find game PID if running
+            # Find game PID if running (best-effort; failure falls back gracefully)
             game_pid = None
             if self._current_game:
-                import psutil
-                for proc in psutil.process_iter(["name", "pid"]):
-                    if proc.info["name"] and proc.info["name"].lower() == self._current_game.lower():
-                        game_pid = proc.info["pid"]
-                        break
+                try:
+                    import psutil
+                    for proc in psutil.process_iter(["name", "pid"]):
+                        if proc.info["name"] and proc.info["name"].lower() == self._current_game.lower():
+                            game_pid = proc.info["pid"]
+                            break
+                except Exception as e:
+                    logger.warning(f"Could not find game PID for '{self._current_game}': {e}")
 
             backup = self._fps_booster.apply(settings, game_pid=game_pid)
             if self.state_guard:
@@ -546,7 +573,8 @@ class MainWindow(QMainWindow):
             self._toast.show_message("Network optimizations applied", "success")
             self._applied_settings["optimizer"] = settings
             self.tab_monitor.update_applied_settings(self._applied_settings)
-        except Exception:
+        except Exception as e:
+            logger.error(f"Optimizer apply failed: {e}")
             self.tab_optimizer.show_apply_error()
             self._toast.show_message("Optimizer apply failed", "error")
 
@@ -594,7 +622,7 @@ class MainWindow(QMainWindow):
                 errors.append("DNS")
 
         # Background killer
-        if settings.get("pause_windows_update") or settings.get("pause_onedrive") or settings.get("pause_bits"):
+        if settings.get("pause_windows_update") or settings.get("pause_onedrive") or settings.get("pause_bits") or settings.get("pause_telemetry"):
             try:
                 from core.background_killer import BackgroundKiller
                 if self._background_killer is None:
@@ -917,17 +945,14 @@ class MainWindow(QMainWindow):
         self._health_alert_cooldown = True
         self._health_alert_timer.start()
 
-    def _check_gpu_temp(self) -> None:
-        """Poll GPU temperature via nvidia-smi every 5 s."""
-        try:
-            import subprocess
-            result = subprocess.run(
-                ["nvidia-smi", "--query-gpu=temperature.gpu",
-                 "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=3,
-            )
-            temp = int(result.stdout.strip())
-        except Exception:
+    def _poll_gpu_temp(self) -> None:
+        """Fire nvidia-smi in a background thread (non-blocking)."""
+        QThreadPool.globalInstance().start(_GpuTempPollWorker(self._gpu_temp_signals))
+
+    @pyqtSlot(int)
+    def _on_gpu_temp(self, temp: int) -> None:
+        """Receive GPU temp result on the main thread (from background worker)."""
+        if temp < 0:
             return
         if temp >= 85 and not self._gpu_throttle_alerted:
             msg = (

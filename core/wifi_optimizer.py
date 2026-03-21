@@ -158,6 +158,8 @@ def apply(settings: dict) -> dict:
     - ``prefer_6ghz``           — PreferredBand=3
     - ``throughput_booster``    — Throughput Booster=1
     - ``disable_mimo_power_save`` — MIMO Power Save Mode=3
+    - ``disable_lso``           — *LsoV2IPv4=0, *LsoV2IPv6=0 (eliminates LSO-induced ping spikes)
+    - ``disable_interrupt_mod`` — InterruptModeration=0 (every packet interrupts CPU immediately)
 
     Returns a *backup* dict of original values suitable for :func:`restore`.
     """
@@ -183,6 +185,17 @@ def apply(settings: dict) -> dict:
         tweaks.append(("Throughput Booster", 1))
     if settings.get("disable_mimo_power_save"):
         tweaks.append(("MIMO Power Save Mode", 3))
+    if settings.get("disable_lso"):
+        # Large Send Offload lets the NIC batch outgoing TCP segments into large
+        # frames, which introduces 20–200 ms stalls in game traffic.  Disabling
+        # both IPv4 and IPv6 LSO v2 is the single biggest fix for in-game spikes.
+        tweaks.append(("*LsoV2IPv4", 0))
+        tweaks.append(("*LsoV2IPv6", 0))
+    if settings.get("disable_interrupt_mod"):
+        # With interrupt moderation enabled the NIC waits up to ~200 μs before
+        # raising a CPU interrupt for incoming packets.  Disabling it ensures
+        # every packet is delivered to the driver immediately, cutting jitter.
+        tweaks.append(("InterruptModeration", 0))
 
     for value_name, new_val in tweaks:
         backup[value_name] = _read_reg(adapter_key, value_name)

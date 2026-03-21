@@ -78,13 +78,15 @@ class TabWifi(QWidget):
 
     # Ordered list of (key, label, badge, tooltip)
     _TOGGLES = [
-        ("disable_power_saving",    "Disable Power Saving",              "CRITICAL", ""),
-        ("minimize_roaming",        "Minimize Roaming Aggressiveness",   "", ""),
-        ("max_tx_power",            "Maximum TX Power",                  "", ""),
-        ("disable_bss_scan",        "Disable Background BSS Scanning",   "", ""),
-        ("prefer_6ghz",             "Prefer 6 GHz Band",                 "", ""),
-        ("throughput_booster",      "Throughput Booster",                "", ""),
-        ("disable_mimo_power_save", "Disable MIMO Power Saving",         "", ""),
+        ("disable_lso",            "Disable Large Send Offload (LSO)",   "CRITICAL", "Stops NIC from batching outgoing packets — biggest single fix for in-game ping spikes"),
+        ("disable_interrupt_mod",  "Disable Interrupt Moderation",       "", "Forces NIC to deliver every packet immediately — reduces jitter"),
+        ("disable_power_saving",   "Disable Power Saving",               "CRITICAL", ""),
+        ("minimize_roaming",       "Minimize Roaming Aggressiveness",    "", ""),
+        ("max_tx_power",           "Maximum TX Power",                   "", ""),
+        ("disable_bss_scan",       "Disable Background BSS Scanning",    "", ""),
+        ("prefer_6ghz",            "Prefer 6 GHz Band",                  "", ""),
+        ("throughput_booster",     "Throughput Booster",                 "", ""),
+        ("disable_mimo_power_save","Disable MIMO Power Saving",          "", ""),
     ]
 
     def __init__(self, parent=None):

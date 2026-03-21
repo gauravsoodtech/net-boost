@@ -198,7 +198,8 @@ class TabDashboard(QWidget):
             else:
                 self._badge_ping.set_color("#f44336")
 
-        # Colour-code loss badge
+        # Colour-code loss badge and update its value
+        self._badge_loss.set_value(loss)
         if loss == 0:
             self._badge_loss.set_color("#4caf50")
         elif loss < 2:

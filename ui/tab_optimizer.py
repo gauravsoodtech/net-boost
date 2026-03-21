@@ -176,6 +176,7 @@ class TabOptimizer(QWidget):
             ("pause_windows_update", "Pause Windows Update"),
             ("pause_onedrive",       "Pause OneDrive Sync"),
             ("pause_bits",           "Pause BITS (Background Download)"),
+            ("pause_telemetry",      "Pause Windows Telemetry (DiagTrack)"),
         ]:
             row = _ToggleRow(key, label)
             self._toggle_rows[key] = row

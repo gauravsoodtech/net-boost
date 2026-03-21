@@ -6,6 +6,20 @@ Maps every UI key → risk level, affected tab, cause, and remediation advice.
 
 RISK_REGISTRY: dict[str, dict] = {
     # ------------------------------------------------------------------ Wi-Fi
+    "disable_lso": {
+        "level": "LOW",
+        "tab": "wifi",
+        "display": "Disable Large Send Offload (LSO)",
+        "cause": "Eliminates NIC packet-batching delays — key fix for in-game ping spikes.",
+        "advice": "Safe to leave on. Required reboot only if NIC driver re-enables it.",
+    },
+    "disable_interrupt_mod": {
+        "level": "LOW",
+        "tab": "wifi",
+        "display": "Disable Interrupt Moderation",
+        "cause": "Forces immediate CPU interrupt per packet — reduces jitter.",
+        "advice": "Slightly higher CPU usage; reverts on restore.",
+    },
     "minimize_roaming": {
         "level": "HIGH",
         "tab": "wifi",
@@ -177,6 +191,13 @@ RISK_REGISTRY: dict[str, dict] = {
         "display": "Pause BITS",
         "cause": "Stops background download transfers.",
         "advice": "Low risk; reverts on restore.",
+    },
+    "pause_telemetry": {
+        "level": "LOW",
+        "tab": "optimizer",
+        "display": "Pause Windows Telemetry",
+        "cause": "DiagTrack sends telemetry bursts that cause brief network congestion spikes.",
+        "advice": "Safe; telemetry resumes on restore or next boot.",
     },
 }
 

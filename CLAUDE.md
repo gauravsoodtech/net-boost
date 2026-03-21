@@ -353,13 +353,13 @@ Do not emit `profile_new_requested` from `_on_duplicate` — it will always dupl
 All setting key names are defined by the UI toggle rows (`_toggle_rows` dicts in each tab). Every backend module and profile JSON **must** use these exact strings. Mismatches cause silent no-ops.
 
 **Wi-Fi (`tab_wifi.py` → `core/wifi_optimizer.py`):**
-`disable_power_saving`, `minimize_roaming`, `max_tx_power`, `disable_bss_scan`, `prefer_6ghz`, `throughput_booster`, `disable_mimo_power_save`
+`disable_lso`, `disable_interrupt_mod`, `disable_power_saving`, `minimize_roaming`, `max_tx_power`, `disable_bss_scan`, `prefer_6ghz`, `throughput_booster`, `disable_mimo_power_save`
 
 **TCP (`tab_optimizer.py` → `core/network_optimizer.py`):**
 `tcp_no_delay`, `tcp_ack_freq`, `tcp_window_scale` (translated to `window_scaling` before passing to backend)
 
 **Background Killer (`tab_optimizer.py` → `core/background_killer.py`):**
-`pause_windows_update`, `pause_onedrive`, `pause_bits`
+`pause_windows_update`, `pause_onedrive`, `pause_bits`, `pause_telemetry`
 
 **DNS (`tab_optimizer.py` → `core/dns_switcher.py`):**
 `switch_dns`, `dns_provider` (display name), `dns_primary`, `dns_secondary`
@@ -424,3 +424,9 @@ All profile fields and their canonical keys (as of current schema):
 - Monitor graph `add_reading()` on timeout must NOT plot `0.0` — use the running average (`self._sum_ping / self._count`) so timeouts render as a flat line rather than a downward spike to zero
 - `_apply_fps()` game PID lookup (psutil loop) is wrapped in its own inner `try/except` separate from the outer FPS apply block — a transient `AccessDenied` from psutil must not prevent FPS settings from being applied
 - `MsMpEng.exe` (Windows Defender) must NOT be in `PROCESSES_TO_SUSPEND` — suspending it degrades Windows Network Inspection Service and causes Windows health-check interference that manifests as in-game latency spikes
+- `disable_lso` writes `*LsoV2IPv4=0` and `*LsoV2IPv6=0` to the Intel adapter key — these are the primary fix for 20–200 ms in-game ping bursts caused by NIC packet batching (Large Send Offload)
+- `disable_interrupt_mod` writes `InterruptModeration=0` to the Intel adapter key — forces per-packet CPU interrupts, reducing jitter; slightly increases CPU utilisation
+- `pause_telemetry` stops/pauses `DiagTrack` (Connected User Experiences and Telemetry) — it sends large telemetry bundles during gaming and competes for bandwidth; `_apply_optimizer` trigger condition must include `pause_telemetry` (same BackgroundKiller path as `pause_windows_update`)
+- `Tcp1323Opts` is set to `1` (window scaling only) — **not** `3`; value `3` enables RFC 1323 timestamps which add 12 bytes per packet overhead with no benefit when `GlobalMaxTcpWindowSize` is 65535
+- `TabMonitor` jitter uses consecutive-difference (`|current − prev_latency|`), not deviation from running average — `_prev_latency` must be updated on every non-timeout reading and reset in `_reset_stats()`
+- `update_ping_stats()` in `TabDashboard` must call `self._badge_loss.set_value(loss)` to actually display the loss percentage — the colour update alone does not set the badge text

@@ -210,7 +210,10 @@ def apply(settings: dict) -> dict:
     # --- Optional: TCP window scaling (global key) ---
     if settings.get("window_scaling"):
         global_backup: dict = {}
-        for value_name, new_val in (("Tcp1323Opts", 3), ("GlobalMaxTcpWindowSize", 65535)):
+        # Tcp1323Opts=1: window scaling only (bit 0).  Value 3 also enables
+        # RFC 1323 timestamps (bit 1) which add 12 bytes overhead per packet
+        # with no latency benefit when GlobalMaxTcpWindowSize is 65535.
+        for value_name, new_val in (("Tcp1323Opts", 1), ("GlobalMaxTcpWindowSize", 65535)):
             global_backup[value_name] = _read_reg(_GLOBAL_KEY, value_name)
             _write_reg(_GLOBAL_KEY, value_name, new_val)
         backup["global"] = global_backup

@@ -28,7 +28,9 @@ ONESYNC_PREFIX = "OneSyncSvc"
 # Processes to *suspend* (not kill) — CPU/IO hogs.
 PROCESSES_TO_SUSPEND = [
     "SearchIndexer.exe",
-    "MsMpEng.exe",   # Windows Defender
+    # MsMpEng.exe (Windows Defender) removed — suspending it causes network
+    # inspection interruptions and Windows health-check interference that
+    # manifests as in-game latency spikes.
 ]
 
 # Browser processes to deprioritize (lower scheduling priority).
@@ -264,6 +266,11 @@ def apply(settings: dict) -> dict:
         for pid in _find_pids_by_name("OneDrive.exe"):
             suspend_process(pid)
             backup["suspended_pids"].append(pid)
+
+    # --- Windows Telemetry (DiagTrack) ---
+    if settings.get("pause_telemetry"):
+        entry = _pause_or_stop_service("DiagTrack")
+        backup["services_backup"].append(entry)
 
     # --- Always: suspend background CPU/IO hogs ---
     for exe_name in PROCESSES_TO_SUSPEND:

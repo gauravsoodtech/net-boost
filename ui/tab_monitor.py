@@ -281,6 +281,7 @@ class TabMonitor(QWidget):
         self._sum_ping: float = 0.0
         self._count:    int   = 0
         self._last_jitter: float = 0.0
+        self._prev_latency: float = 0.0   # for consecutive-diff jitter
         self._timeouts: int = 0
 
         self._build_ui()
@@ -387,6 +388,7 @@ class TabMonitor(QWidget):
         self._sum_ping = 0.0
         self._count = 0
         self._last_jitter = 0.0
+        self._prev_latency = 0.0
         self._timeouts = 0
         self._refresh_stat_labels(0.0, 0.0)
 
@@ -434,17 +436,22 @@ class TabMonitor(QWidget):
             self._timeouts += 1
             jitter = self._last_jitter
             loss_pct = self._timeouts / (self._count + self._timeouts) * 100.0
-            self._graph.add_reading(0.0, jitter, loss_pct)
+            # Use running average so timeouts don't create a 0ms spike on the graph
+            avg_latency = (self._sum_ping / self._count) if self._count > 0 else None
+            if avg_latency is not None:
+                self._graph.add_reading(avg_latency, jitter, loss_pct)
             self._refresh_stat_labels(0.0, jitter)
             return
 
-        prev_avg = (self._sum_ping / self._count) if self._count > 0 else latency_ms
+        prev_latency = self._prev_latency if self._count > 0 else latency_ms
         self._count    += 1
         self._sum_ping += latency_ms
         self._min_ping  = min(self._min_ping, latency_ms)
         self._max_ping  = max(self._max_ping, latency_ms)
 
-        jitter = abs(latency_ms - prev_avg)
+        # Proper jitter: mean absolute deviation of consecutive readings (RFC 3550).
+        jitter = abs(latency_ms - prev_latency)
+        self._prev_latency = latency_ms
         self._last_jitter = jitter
 
         total = self._count + self._timeouts
