@@ -955,3 +955,19 @@ QDockWidget::title {
     letter-spacing: 1px;
     text-transform: uppercase;
 }
+
+/* ── Route Analyzer Tab ─────────────────────────────────────────────────── */
+
+QFrame#routeStatusFrame {
+    background-color: #16213e;
+    border: 1px solid #2a2a4a;
+    border-radius: 8px;
+    padding: 6px 12px;
+}
+
+QFrame#routeSummaryFrame {
+    background-color: #1a1a2e;
+    border: 1px solid #2a2a4a;
+    border-radius: 6px;
+    padding: 8px 14px;
+}

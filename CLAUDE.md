@@ -25,7 +25,7 @@ tests/                      # pytest unit tests + integration check script
 - Main thread: Qt event loop + all UI updates
 - `QThread`: `PingMonitor` → emits `reading(host, ms, timed_out)`
 - `QThread`: `ProcessWatcher` → emits `game_launched(str)` / `game_exited(str)`
-- `QThreadPool`: slow operations — Wi-Fi latency test (`_LatencyWorker`), RAM poll (`_RamPollWorker`), RAM optimize (`_RamOptimizeWorker`), service stop/start
+- `QThreadPool`: slow operations — Wi-Fi latency test (`_LatencyWorker`), RAM poll (`_RamPollWorker`), RAM optimize (`_RamOptimizeWorker`), service stop/start, route trace (`_TraceRouteWorker`), server discovery (`_DiscoverWorker`)
 
 **Signal flow:** Core threads → Qt signals → `MainWindow` slots → UI tab methods. Never call UI methods directly from background threads.
 
@@ -48,6 +48,7 @@ tests/                      # pytest unit tests + integration check script
 | `core/background_killer.py` | Suspend services/processes on game launch | `BackgroundKiller` |
 | `core/bandwidth_manager.py` | DSCP QoS registry + SetPriorityClass | `BandwidthManager` |
 | `core/ram_optimizer.py` | EmptyWorkingSet + file cache flush | `RamOptimizer` |
+| `core/route_analyzer.py` | tracert parser, bottleneck detection, game server discovery | `_TraceRouteWorker`, `_DiscoverWorker`, `mark_bottlenecks()` |
 | `core/settings_risk.py` | Risk metadata for every toggle key (pure Python, no Qt) | `get_risk()`, `filter_by_level()` |
 
 ---
@@ -430,3 +431,41 @@ All profile fields and their canonical keys (as of current schema):
 - `Tcp1323Opts` is set to `1` (window scaling only) — **not** `3`; value `3` enables RFC 1323 timestamps which add 12 bytes per packet overhead with no benefit when `GlobalMaxTcpWindowSize` is 65535
 - `TabMonitor` jitter uses consecutive-difference (`|current − prev_latency|`), not deviation from running average — `_prev_latency` must be updated on every non-timeout reading and reset in `_reset_stats()`
 - `update_ping_stats()` in `TabDashboard` must call `self._badge_loss.set_value(loss)` to actually display the loss percentage — the colour update alone does not set the badge text
+- `DiagnosticPanel.update_applied_settings()` clear loop must guard `item.widget() is not self._no_settings_lbl` before calling `deleteLater()` — the placeholder label is reused; deleting it causes use-after-free on the next call (same pattern as `clear_alerts()` already uses for `_no_alerts_lbl`)
+- Auto game mode activation (`elif self._auto_game_mode:` in `on_game_launched`) calls `tab_dashboard.set_game_mode(True)` with signals blocked — must also call `tray._on_game_mode_changed(True)` directly or the tray icon stays grey/yellow and the "Enable Game Mode" checkmark stays unchecked
+- `tray.update_profiles(profiles, active)` must be called by `MainWindow` after every profile list change (`_on_profile_load`, `_on_profile_delete`, `_on_profile_new`, `_on_profile_duplicate`, `_on_profile_import`) — and once on startup in `main.py` after the tray is created — the tray profile submenu is never auto-synced
+
+## Route Analyzer Tab
+
+`TabRoute` in `ui/tab_route.py` + `core/route_analyzer.py`.
+
+**Public API called by MainWindow:**
+- `on_game_detected(exe: str, pid: int)` — updates status LED/label, schedules server discovery after 3s delay
+- `on_game_exited()` — resets status bar; table kept readable
+
+**Server discovery flow:**
+1. `on_game_detected` fires `QTimer.singleShot(3000, _try_discover_server)` — gives game time to connect
+2. `_DiscoverWorker` calls `discover_game_server(pid)` → `psutil.Process(pid).net_connections(kind='inet')` → first public non-private remote IP
+3. On `found`: pre-fills `_manual_ip_input`, auto-starts trace
+4. On `not_found`: retries once after 5s (`_MAX_DISCOVER_RETRIES = 2`), then shows "Enter IP manually"
+
+**Tracert parsing (`_parse_tracert_line`):**
+- Regex: `^\s*(?P<hop>\d+)\s+(?P<r1>[<\d]+\s*ms|\*)\s+(?P<r2>...)\s+(?P<r3>...)\s+(?P<rest>.+?)\s*$`
+- `<1 ms` → 0.5 (so bottleneck math works); `*` → None
+- `is_timeout = True` only when ALL three probes are `*`
+- IP extracted from `rest` field only when not timeout
+
+**Bottleneck detection (`mark_bottlenecks`):**
+- Threshold: 15ms jump from previous **responsive** hop
+- Timeout hops do NOT advance `prev_ms` — a run of timeouts won't mask a real bottleneck at the next responsive hop
+- First responsive hop is never a bottleneck (no baseline)
+
+**Row colors (programmatic — QSS cannot target QTableWidgetItem):**
+- Timeout: bg `#2a0a0a`, fg `#f44336`
+- Bottleneck: bg `#2a2200`, fg `#ff9800`; status cell text → "Bottleneck"
+- OK: fg `#4caf50`
+
+**`_TraceRouteWorker` cancel pattern:**
+- `cancel()` sets `self._cancelled = True` and calls `self._proc.terminate()`
+- After loop, checks `if self._cancelled: return` — `finished` signal is NOT emitted on cancel
+- `_on_trace_clicked` cancels any in-progress worker before starting a new one

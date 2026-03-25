@@ -107,6 +107,15 @@ def main():
     tray = TrayIcon(window, app)
     window.tray = tray  # allow MainWindow to call tray.set_game_detected()
 
+    # Populate tray profile submenu now that both window and tray exist
+    if profile_manager:
+        try:
+            _profiles = profile_manager.list_profiles()
+            _active = profile_manager.get_active().get("name", "Default") if _profiles else "Default"
+            tray.update_profiles(_profiles, _active)
+        except Exception as e:
+            logger.warning(f"Failed to populate tray profile submenu: {e}")
+
     window.show()
 
     # Step 6: Start background threads

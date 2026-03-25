@@ -102,6 +102,7 @@ class MainWindow(QMainWindow):
         self._loss_count = 0
         self._total_count = 0
         self._current_game = None
+        self._current_game_pid: int = 0
         self._game_mode_active = False
         self._game_mode_applied = False   # True only if Game Mode itself applied changes
         self._game_mode_pending = False   # latest value for debounce
@@ -221,6 +222,9 @@ class MainWindow(QMainWindow):
         self.tab_profiles = TabProfiles()
         self.tab_settings = TabSettings()
 
+        from ui.tab_route import TabRoute
+        self.tab_route = TabRoute()
+
         self.tabs.addTab(self.tab_dashboard, "Dashboard")
         self.tabs.addTab(self.tab_monitor, "Monitor")
         self.tabs.addTab(self.tab_wifi, "Wi-Fi")
@@ -229,6 +233,7 @@ class MainWindow(QMainWindow):
         self.tabs.addTab(self.tab_bandwidth, "Bandwidth")
         self.tabs.addTab(self.tab_profiles, "Profiles")
         self.tabs.addTab(self.tab_settings, "Settings")
+        self.tabs.addTab(self.tab_route, "Route Analyzer")
 
         # Populate profiles if available
         if self.profile_manager:
@@ -306,22 +311,38 @@ class MainWindow(QMainWindow):
             self.tray.set_game_detected(exe_name)
         self._set_status(f"Game detected: {exe_name}")
 
+        # Route Analyzer — find PID so tab can scan live connections
+        self._current_game_pid = 0
+        try:
+            import psutil
+            for proc in psutil.process_iter(["name", "pid"]):
+                if proc.info["name"] and proc.info["name"].lower() == exe_name.lower():
+                    self._current_game_pid = proc.info["pid"]
+                    break
+        except Exception as exc:
+            logger.warning("on_game_launched: PID lookup failed for '%s': %s", exe_name, exc)
+        self.tab_route.on_game_detected(exe_name, self._current_game_pid)
+
         if self._game_mode_active:
             self._activate_game_mode(exe_name)
         elif self._auto_game_mode:
             # Auto-enable Game Mode when a game is detected
             self._game_mode_active = True
             self.tab_dashboard.set_game_mode(True)
+            if self.tray:
+                self.tray._on_game_mode_changed(True)
             self._activate_game_mode(exe_name)
 
     @pyqtSlot(str)
     def on_game_exited(self, exe_name: str):
         logger.info(f"Game exited: {exe_name}")
         self._current_game = None
+        self._current_game_pid = 0
         self.tab_dashboard.set_game_detected(None)
         if self.tray:
             self.tray.set_game_detected(None)
         self._set_status("No game detected")
+        self.tab_route.on_game_exited()
 
         if self._game_mode_active:
             self._deactivate_game_mode()
@@ -784,6 +805,8 @@ class MainWindow(QMainWindow):
             self.tab_dashboard.set_active_profile(name)
             profiles = self.profile_manager.list_profiles()
             self.tab_profiles.set_profiles(profiles, name)
+            if self.tray:
+                self.tray.update_profiles(profiles, name)
             self._set_status(f"Profile '{name}' loaded")
         except Exception as e:
             logger.error(f"Profile load error: {e}")
@@ -813,6 +836,8 @@ class MainWindow(QMainWindow):
             profiles = self.profile_manager.list_profiles()
             active = self.profile_manager.get_active().get("name", "")
             self.tab_profiles.set_profiles(profiles, active)
+            if self.tray:
+                self.tray.update_profiles(profiles, active)
         except Exception as e:
             logger.error(f"Profile delete error: {e}")
 
@@ -830,6 +855,8 @@ class MainWindow(QMainWindow):
                 profiles = self.profile_manager.list_profiles()
                 active = self.profile_manager.get_active().get("name", "")
                 self.tab_profiles.set_profiles(profiles, active)
+                if self.tray:
+                    self.tray.update_profiles(profiles, active)
             except Exception as e:
                 logger.error(f"Profile create error: {e}")
 
@@ -847,6 +874,8 @@ class MainWindow(QMainWindow):
                 profiles = self.profile_manager.list_profiles()
                 active = self.profile_manager.get_active().get("name", "")
                 self.tab_profiles.set_profiles(profiles, active)
+                if self.tray:
+                    self.tray.update_profiles(profiles, active)
             except Exception as e:
                 logger.error(f"Profile duplicate error: {e}")
 
@@ -860,6 +889,8 @@ class MainWindow(QMainWindow):
                 profiles = self.profile_manager.list_profiles()
                 active = self.profile_manager.get_active().get("name", "")
                 self.tab_profiles.set_profiles(profiles, active)
+                if self.tray:
+                    self.tray.update_profiles(profiles, active)
                 self._set_status(f"Imported profile: {name}")
             except Exception as e:
                 QMessageBox.warning(self, "Import Failed", str(e))

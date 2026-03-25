@@ -73,6 +73,17 @@ The Intel AX211 aggressively power-saves and background-scans by default, causin
 - Auto game detection — activates in **<1.5 seconds** of game launch
 - System tray: grey (idle) → yellow (game detected) → green (optimized)
 
+### 🗺️ Route Analyzer *(new)*
+Diagnoses which network hop is causing mid-match ping spikes — without needing a VPN:
+
+| Feature | Detail |
+|---------|--------|
+| **Auto server detection** | Reads live connections of the game process to find its server IP |
+| **Live hop table** | Populates row-by-row as `tracert` streams output |
+| **Bottleneck highlighting** | Hops with >15ms jump from previous amber; timeouts red |
+| **Summary line** | Reports exact hop number and latency delta for each bottleneck |
+| **Manual IP fallback** | Enter any target IP if auto-detection doesn't find the server |
+
 ### 🩺 Settings Health Monitor *(new)*
 NetBoost now actively watches for signs that your applied settings are causing problems:
 
@@ -178,6 +189,7 @@ netboost/
 │   ├── bandwidth_manager.py   # QoS DSCP + priority
 │   ├── ram_optimizer.py       # Working set + file cache flush
 │   ├── profile_manager.py     # JSON profile CRUD
+│   ├── route_analyzer.py      # tracert parser + game server discovery
 │   └── settings_risk.py       # Risk metadata registry (27 settings, 3 levels)
 ├── ui/
 │   ├── main_window.py         # QMainWindow + signal wiring
@@ -190,6 +202,7 @@ netboost/
 │   ├── tab_bandwidth.py       # Process priority table
 │   ├── tab_profiles.py        # Profile management
 │   ├── tab_settings.py        # App settings + game list
+│   ├── tab_route.py           # Route Analyzer (tracert + server discovery)
 │   └── widgets/
 │       ├── ping_graph.py          # PyQtGraph rolling graph
 │       ├── toggle_switch.py       # Animated iOS-style toggle
@@ -285,7 +298,7 @@ This project was designed and built with **[Claude](https://claude.ai) (Anthropi
 |------|------------------|
 | **Architecture design** | Designed the full module structure, threading model, and signal flow before writing a single line |
 | **Core implementation** | Wrote all 13 core optimizer modules — registry tweaks, service control, ICMP monitor, crash-safe state guard |
-| **UI layer** | Built the entire PyQt5 interface — 8 tabs, animated toggle switches, PyQtGraph live graphs, system tray |
+| **UI layer** | Built the entire PyQt5 interface — 9 tabs, animated toggle switches, PyQtGraph live graphs, system tray |
 | **Windows internals** | Identified the exact Intel AX211 registry keys, P-core affinity masks, NtSetTimerResolution API calls |
 | **Test suite** | Generated 4 unit test files + integration check script with mocked subprocess/registry |
 | **Documentation** | Wrote this README and the CLAUDE.md developer guide |

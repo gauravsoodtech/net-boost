@@ -135,10 +135,10 @@ class DiagnosticPanel(QFrame):
         """
         from core.settings_risk import get_risk
 
-        # Clear old rows (leave no_settings_lbl in layout)
+        # Clear old rows (preserve _no_settings_lbl — it is reused)
         while self._settings_layout.count():
             item = self._settings_layout.takeAt(0)
-            if item.widget():
+            if item.widget() and item.widget() is not self._no_settings_lbl:
                 item.widget().deleteLater()
 
         # Flatten all enabled keys
