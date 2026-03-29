@@ -217,10 +217,11 @@ Game Mode (Dashboard toggle) applies all tab settings automatically when enabled
 
 ```python
 _dns_name_map = {
-    "Cloudflare 1.1.1.1": "cloudflare",
-    "Google 8.8.8.8":     "google",
-    "Quad9 9.9.9.9":      "quad9",
-    "Custom":             "custom",
+    "OpenDNS 208.67.222.222": "opendns",
+    "Cloudflare 1.1.1.1":     "cloudflare",
+    "Google 8.8.8.8":         "google",
+    "Quad9 9.9.9.9":          "quad9",
+    "Custom":                 "custom",
 }
 provider_key = _dns_name_map.get(settings["dns_provider"], settings["dns_provider"].lower())
 ```
@@ -378,7 +379,7 @@ All profile fields and their canonical keys (as of current schema):
 ```json
 {
   "name": "Gaming",
-  "dns": {"switch_dns": true, "dns_provider": "Cloudflare 1.1.1.1", "dns_primary": "1.1.1.1", "dns_secondary": "1.0.0.1"},
+  "dns": {"switch_dns": true, "dns_provider": "OpenDNS 208.67.222.222", "dns_primary": "208.67.222.222", "dns_secondary": "208.67.220.220"},
   "tcp_optimizer": {"tcp_no_delay": true, "tcp_ack_freq": true, "tcp_window_scale": true, "enabled": true},
   "bandwidth": {"game_priority": true, "enabled": true},
   "background_killer": {"pause_windows_update": true, "pause_onedrive": true, "pause_bits": true, "enabled": true},

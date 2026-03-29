@@ -63,10 +63,11 @@ class TabOptimizer(QWidget):
     ram_optimize_requested = pyqtSignal()
 
     _DNS_PROVIDERS = [
-        ("Cloudflare 1.1.1.1",  "1.1.1.1",   "1.0.0.1"),
-        ("Google 8.8.8.8",      "8.8.8.8",   "8.8.4.4"),
-        ("Quad9 9.9.9.9",       "9.9.9.9",   "149.112.112.112"),
-        ("Custom",              "",           ""),
+        ("OpenDNS 208.67.222.222", "208.67.222.222", "208.67.220.220"),
+        ("Cloudflare 1.1.1.1",     "1.1.1.1",        "1.0.0.1"),
+        ("Google 8.8.8.8",         "8.8.8.8",        "8.8.4.4"),
+        ("Quad9 9.9.9.9",          "9.9.9.9",        "149.112.112.112"),
+        ("Custom",                 "",               ""),
     ]
 
     def __init__(self, parent=None):

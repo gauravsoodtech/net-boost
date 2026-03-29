@@ -25,9 +25,10 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 
 DNS_PROVIDERS: dict[str, dict | None] = {
-    "cloudflare": {"primary": "1.1.1.1",       "secondary": "1.0.0.1"},
-    "google":     {"primary": "8.8.8.8",        "secondary": "8.8.4.4"},
-    "quad9":      {"primary": "9.9.9.9",        "secondary": "149.112.112.112"},
+    "cloudflare": {"primary": "1.1.1.1",         "secondary": "1.0.0.1"},
+    "google":     {"primary": "8.8.8.8",          "secondary": "8.8.4.4"},
+    "quad9":      {"primary": "9.9.9.9",          "secondary": "149.112.112.112"},
+    "opendns":    {"primary": "208.67.222.222",   "secondary": "208.67.220.220"},
     "custom":     None,
 }
 

@@ -653,10 +653,11 @@ class MainWindow(QMainWindow):
                 if self._dns_switcher is None:
                     self._dns_switcher = DnsSwitcher()
                 _dns_name_map = {
-                    "Cloudflare 1.1.1.1": "cloudflare",
-                    "Google 8.8.8.8":     "google",
-                    "Quad9 9.9.9.9":      "quad9",
-                    "Custom":             "custom",
+                    "OpenDNS 208.67.222.222": "opendns",
+                    "Cloudflare 1.1.1.1":     "cloudflare",
+                    "Google 8.8.8.8":         "google",
+                    "Quad9 9.9.9.9":          "quad9",
+                    "Custom":                 "custom",
                 }
                 provider_key = _dns_name_map.get(settings["dns_provider"],
                                                   settings["dns_provider"].lower())
