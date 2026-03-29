@@ -57,6 +57,9 @@ class _StatBadge(QFrame):
             f"color: {css_color}; background: transparent; border: none;"
         )
 
+    def set_label(self, text: str) -> None:
+        self._desc_label.setText(text)
+
 
 # ── Dashboard Tab ─────────────────────────────────────────────────────────────
 
@@ -206,6 +209,10 @@ class TabDashboard(QWidget):
             self._badge_loss.set_color("#ff9800")
         else:
             self._badge_loss.set_color("#f44336")
+
+    def set_ping_host(self, host: str) -> None:
+        """Update the ping badge label to show which host is being monitored."""
+        self._badge_ping.set_label(host)
 
     def set_game_detected(self, name) -> None:
         """Show/hide the detected game name."""

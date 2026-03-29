@@ -167,6 +167,7 @@ def apply(settings: dict) -> dict:
     adapter_key = get_wifi_adapter_key()
     if adapter_key is None:
         logger.warning("wifi_optimizer: apply() skipped — no adapter key.")
+        backup["_adapter_found"] = False
         return backup
 
     tweaks: list[tuple[str, int]] = []
@@ -205,6 +206,7 @@ def apply(settings: dict) -> dict:
             pass  # already logged inside _write_reg
 
     backup["_adapter_key"] = adapter_key
+    backup["_adapter_found"] = True
     logger.info("wifi_optimizer: %d tweak(s) applied.", len(tweaks))
     return backup
 

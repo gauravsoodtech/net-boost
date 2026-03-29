@@ -73,27 +73,30 @@ The Intel AX211 aggressively power-saves and background-scans by default, causin
 - Auto game detection — activates in **<1.5 seconds** of game launch
 - System tray: grey (idle) → yellow (game detected) → green (optimized)
 
-### 🗺️ Route Analyzer *(new)*
+### 🗺️ Route Analyzer
 Diagnoses which network hop is causing mid-match ping spikes — without needing a VPN:
 
 | Feature | Detail |
 |---------|--------|
 | **Auto server detection** | Reads live connections of the game process to find its server IP |
+| **Ping re-targeting** | Once game server IP is found, the Dashboard ping monitor switches from 1.1.1.1 to the actual game server — showing real in-game latency |
 | **Live hop table** | Populates row-by-row as `tracert` streams output |
 | **Bottleneck highlighting** | Hops with >15ms jump from previous amber; timeouts red |
 | **Summary line** | Reports exact hop number and latency delta for each bottleneck |
 | **Manual IP fallback** | Enter any target IP if auto-detection doesn't find the server |
 
-### 🩺 Settings Health Monitor *(new)*
-NetBoost now actively watches for signs that your applied settings are causing problems:
+### 🩺 Settings Health Monitor
+NetBoost actively watches for signs that your applied settings are causing problems:
 
 | What it detects | How |
 |----------------|-----|
-| **Random disconnects** | Packet loss >15% while `Minimize Roaming Aggressiveness` is on → amber toast + alert |
+| **Random disconnects** | Packet loss ≥8% while `Minimize Roaming Aggressiveness` or `Prefer 6 GHz` is on → amber toast + alert |
+| **Jitter spikes** | 3 consecutive readings >30ms jitter → amber toast warning background traffic or Wi-Fi interference |
 | **FPS drops after 10 min** | GPU temp ≥85°C while `NVIDIA Maximum Performance` is on → warns about thermal throttling |
 | **Pre-apply risk warning** | Before applying HIGH/MEDIUM risk settings, a modal lists the risk and advice |
 | **Health Diagnostics panel** | Monitor tab shows every active setting with a color-coded risk badge (🟢/🟡/🔴) and a live alert log |
 | **Quick-disable** | Alert rows include a `[Disable <setting>]` button — one click unchecks the culprit without leaving the Monitor tab |
+| **LSO apply failure** | If the Intel Wi-Fi adapter key can't be found, a warning toast fires instead of silently showing ✓ Applied |
 
 ### 🛡️ Crash-Safe
 All changes tracked in an atomic state file. If NetBoost crashes mid-session, it **automatically restores your original settings** on next launch.

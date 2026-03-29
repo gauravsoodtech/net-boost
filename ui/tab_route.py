@@ -13,7 +13,7 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem,
     QHeaderView, QFrame, QAbstractItemView,
 )
-from PyQt5.QtCore import Qt, QTimer, QThreadPool, pyqtSlot
+from PyQt5.QtCore import Qt, QTimer, QThreadPool, pyqtSignal, pyqtSlot
 from PyQt5.QtGui import QColor, QBrush
 
 from ui.widgets.status_led import AnimatedLED
@@ -47,8 +47,11 @@ class TabRoute(QWidget):
         on_game_detected(exe, pid)  — after a game launch + PID lookup
         on_game_exited()            — after the game process exits
 
-    All worker management is internal; no outbound signals back to MainWindow.
+    Signals emitted back to MainWindow:
+        server_found(str)  — game server IP discovered via live connections
     """
+
+    server_found = pyqtSignal(str)   # emitted when game server IP is discovered
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -207,6 +210,8 @@ class TabRoute(QWidget):
         self._server_label.setText(f"Server: {ip}")
         self._game_led.setState("green")
         self._manual_ip_input.setText(ip)
+        # Notify MainWindow so it can re-target the ping monitor
+        self.server_found.emit(ip)
         # Auto-start trace with the discovered IP
         self._on_trace_clicked()
 

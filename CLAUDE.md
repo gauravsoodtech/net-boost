@@ -434,6 +434,13 @@ All profile fields and their canonical keys (as of current schema):
 - `DiagnosticPanel.update_applied_settings()` clear loop must guard `item.widget() is not self._no_settings_lbl` before calling `deleteLater()` — the placeholder label is reused; deleting it causes use-after-free on the next call (same pattern as `clear_alerts()` already uses for `_no_alerts_lbl`)
 - Auto game mode activation (`elif self._auto_game_mode:` in `on_game_launched`) calls `tab_dashboard.set_game_mode(True)` with signals blocked — must also call `tray._on_game_mode_changed(True)` directly or the tray icon stays grey/yellow and the "Enable Game Mode" checkmark stays unchecked
 - `tray.update_profiles(profiles, active)` must be called by `MainWindow` after every profile list change (`_on_profile_load`, `_on_profile_delete`, `_on_profile_new`, `_on_profile_duplicate`, `_on_profile_import`) — and once on startup in `main.py` after the tray is created — the tray profile submenu is never auto-synced
+- `_ping_raw` returning a timeout does NOT fall through to `_ping_subprocess` — the subprocess fallback only triggers on `PermissionError`/`OSError` during socket creation, not on recv timeout. Vanguard's kernel driver (vgk.sys) allows raw ICMP socket creation but intercepts ICMP echo replies at the driver level, causing 100% loss on `_ping_raw` while `ping.exe` works fine. Fix: track `_raw_consecutive_timeouts`; after 5 consecutive raw timeouts, skip raw and use subprocess permanently for that session
+- `_set_fullscreen_opt` in `fps_booster.py` must check `flag not in existing` before appending `DISABLEDXMAXIMIZEDWINDOWEDMODE` — without the guard, every Apply/Game Mode activation appends a duplicate, accumulating 10+ copies in the registry key
+- `wifi_optimizer.apply()` returns `backup["_adapter_found"] = False` when the Intel AX211 key enumeration fails — `_on_wifi_apply` in `MainWindow` must check this flag and show a warning toast; a missing adapter key means LSO was never disabled and spikes will persist silently
+- `PingMonitor.host` property exposes `self._host` read-only — use it in `_on_game_server_found` to snapshot the current host before switching, so `on_game_exited` can restore it exactly
+- `_check_connectivity_health` packet-loss threshold is **8%** (not 15%) — 15% is too high for Valorant where even 5% loss is noticeable; the lower threshold catches micro-drops from 6GHz band reconnects and AP handoffs before they accumulate
+- `psutil.Process(pid).net_connections()` returns 0 connections for Vanguard-protected Valorant processes — Vanguard's kernel driver hides the game's UDP connections from user-mode inspection; use `netstat -n` or `Get-NetTCPConnection` system-wide to find game server IPs instead. The `_DiscoverWorker` will silently get an empty list and retry, eventually exhausting retries — this is expected behaviour when Vanguard is running
+- `TabRoute.server_found` is a `pyqtSignal(str)` on `TabRoute` itself (not on `_DiscoverWorkerSignals`) — `MainWindow` connects `tab_route.server_found` → `_on_game_server_found(ip)` to re-target the ping monitor; `TabRoute._on_server_found` emits it after storing the IP and before starting the trace
 
 ## Route Analyzer Tab
 
@@ -446,7 +453,7 @@ All profile fields and their canonical keys (as of current schema):
 **Server discovery flow:**
 1. `on_game_detected` fires `QTimer.singleShot(3000, _try_discover_server)` — gives game time to connect
 2. `_DiscoverWorker` calls `discover_game_server(pid)` → `psutil.Process(pid).net_connections(kind='inet')` → first public non-private remote IP
-3. On `found`: pre-fills `_manual_ip_input`, auto-starts trace
+3. On `found`: pre-fills `_manual_ip_input`, emits `TabRoute.server_found(ip)` signal → `MainWindow._on_game_server_found(ip)` switches `PingMonitor` to game server IP + updates Dashboard ping label; auto-starts trace
 4. On `not_found`: retries once after 5s (`_MAX_DISCOVER_RETRIES = 2`), then shows "Enter IP manually"
 
 **Tracert parsing (`_parse_tracert_line`):**

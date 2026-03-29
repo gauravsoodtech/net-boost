@@ -171,6 +171,11 @@ class MainWindow(QMainWindow):
         self._gpu_temp_timer.timeout.connect(self._poll_gpu_temp)
         self._gpu_throttle_alerted = False
 
+        # Ping host tracking — restored when game exits
+        self._ping_host_before_game: str = "1.1.1.1"
+        # Consecutive jitter spike counter for proactive health alerts
+        self._consecutive_jitter_spikes: int = 0
+
     # ------------------------------------------------------------------ UI setup
 
     def _setup_ui(self):
@@ -271,6 +276,7 @@ class MainWindow(QMainWindow):
         self.tab_settings.settings_changed.connect(self._on_settings_changed)
         self.tab_settings.game_list_changed.connect(self._on_game_list_changed)
         self.tab_monitor.disable_setting_requested.connect(self._on_disable_setting)
+        self.tab_route.server_found.connect(self._on_game_server_found)
 
     # ------------------------------------------------------------------ Ping signals
 
@@ -292,7 +298,7 @@ class MainWindow(QMainWindow):
 
         self.tab_dashboard.update_ping_stats(avg_ping, jitter, loss_pct)
         self.tab_monitor.add_reading(host, latency_ms, timed_out)
-        self._check_connectivity_health(loss_pct)
+        self._check_connectivity_health(loss_pct, jitter or 0.0)
 
     def _compute_jitter(self, readings: list) -> float:
         if len(readings) < 2:
@@ -334,6 +340,15 @@ class MainWindow(QMainWindow):
             self._activate_game_mode(exe_name)
 
     @pyqtSlot(str)
+    def _on_game_server_found(self, ip: str) -> None:
+        """Switch PingMonitor to the discovered game server IP."""
+        if self.ping_monitor:
+            self._ping_host_before_game = self.ping_monitor.host
+            self.ping_monitor.set_host(ip)
+        self.tab_dashboard.set_ping_host(f"Game Server ({ip})")
+        logger.info("PingMonitor re-targeted to game server %s", ip)
+
+    @pyqtSlot(str)
     def on_game_exited(self, exe_name: str):
         logger.info(f"Game exited: {exe_name}")
         self._current_game = None
@@ -343,6 +358,12 @@ class MainWindow(QMainWindow):
             self.tray.set_game_detected(None)
         self._set_status("No game detected")
         self.tab_route.on_game_exited()
+
+        # Restore ping monitor to its original host
+        if self.ping_monitor:
+            self.ping_monitor.set_host(self._ping_host_before_game)
+        self.tab_dashboard.set_ping_host("Current Ping")
+        self._consecutive_jitter_spikes = 0
 
         if self._game_mode_active:
             self._deactivate_game_mode()
@@ -420,19 +441,26 @@ class MainWindow(QMainWindow):
             if dlg.exec_() == QDialog.Rejected:
                 return
         try:
-            self._apply_wifi(settings)
+            backup = self._apply_wifi(settings)
             self.tab_wifi.set_settings(settings)
             self.tab_wifi.mark_applied(settings)
             self.tab_wifi.show_apply_success()
             self._toast.show_message("Wi-Fi optimizations applied", "success")
             self._applied_settings["wifi"] = settings
             self.tab_monitor.update_applied_settings(self._applied_settings)
+            if not backup.get("_adapter_found", True):
+                self._toast.show_message(
+                    "Wi-Fi adapter key not found — LSO may still be active. "
+                    "Ping spikes may persist.",
+                    "warning",
+                    duration_ms=8000,
+                )
         except Exception as e:
             logger.error(f"Wi-Fi apply failed: {e}")
             self.tab_wifi.show_apply_error()
             self._toast.show_message("Wi-Fi apply failed", "error")
 
-    def _apply_wifi(self, settings: dict):
+    def _apply_wifi(self, settings: dict) -> dict:
         try:
             from core.wifi_optimizer import WifiOptimizer
             if self._wifi_optimizer is None:
@@ -441,6 +469,7 @@ class MainWindow(QMainWindow):
             if self.state_guard:
                 self.state_guard.record_wifi_backup(backup)
             self._set_status("Wi-Fi optimizations applied")
+            return backup
         except Exception as e:
             logger.error(f"Wi-Fi apply error: {e}")
             self._set_status(f"Wi-Fi error: {e}")
@@ -955,26 +984,48 @@ class MainWindow(QMainWindow):
 
     # ------------------------------------------------------------------ Health monitoring
 
-    def _check_connectivity_health(self, loss_pct: float) -> None:
-        """Called every ping reading. Fires a warning toast if packet loss is high."""
-        if self._health_alert_cooldown or loss_pct < 15.0:
-            return
+    def _check_connectivity_health(self, loss_pct: float, jitter: float = 0.0) -> None:
+        """Called every ping reading. Fires warning toasts for high loss or jitter spikes."""
         wifi = self._applied_settings.get("wifi", {})
-        if wifi.get("minimize_roaming"):
-            msg = (
-                "High packet loss detected — 'Minimize Roaming Aggressiveness' "
-                "may be causing brief disconnects during AP handoffs."
-            )
-            culprit = "minimize_roaming"
-        elif wifi.get("prefer_6ghz"):
-            msg = "High packet loss — 'Prefer 6 GHz Band' may be causing reconnects."
-            culprit = "prefer_6ghz"
+
+        # Track consecutive jitter spikes (>30 ms) regardless of cooldown
+        if jitter > 30.0:
+            self._consecutive_jitter_spikes += 1
         else:
+            self._consecutive_jitter_spikes = 0
+
+        if self._health_alert_cooldown:
             return
-        self._toast.show_message(msg, "warning", duration_ms=6000)
-        self.tab_monitor.add_health_alert(msg, culprit_key=culprit)
-        self._health_alert_cooldown = True
-        self._health_alert_timer.start()
+
+        # Packet loss alert — lowered threshold to 8% (from 15%) to catch micro-drops
+        if loss_pct >= 8.0:
+            if wifi.get("minimize_roaming"):
+                msg = (
+                    "Packet loss detected — 'Minimize Roaming Aggressiveness' "
+                    "may be causing brief disconnects during AP handoffs."
+                )
+                culprit = "minimize_roaming"
+            elif wifi.get("prefer_6ghz"):
+                msg = "Packet loss — 'Prefer 6 GHz Band' may be causing reconnects."
+                culprit = "prefer_6ghz"
+            else:
+                return
+            self._toast.show_message(msg, "warning", duration_ms=6000)
+            self.tab_monitor.add_health_alert(msg, culprit_key=culprit)
+            self._health_alert_cooldown = True
+            self._health_alert_timer.start()
+            return
+
+        # Jitter spike alert — 3 consecutive readings >30 ms
+        if self._consecutive_jitter_spikes >= 3:
+            msg = (
+                f"Jitter spike detected ({jitter:.0f} ms) — background traffic or "
+                "Wi-Fi interference may be competing with game packets."
+            )
+            self._toast.show_message(msg, "warning", duration_ms=6000)
+            self.tab_monitor.add_health_alert(msg)
+            self._health_alert_cooldown = True
+            self._health_alert_timer.start()
 
     def _poll_gpu_temp(self) -> None:
         """Fire nvidia-smi in a background thread (non-blocking)."""

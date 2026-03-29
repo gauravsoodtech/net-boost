@@ -89,6 +89,7 @@ class PingMonitor(QThread):
         self._history: deque[Tuple[float, bool]] = deque(maxlen=history_size)
         self._sequence = 0
         self._identifier = os.getpid() & 0xFFFF
+        self._raw_consecutive_timeouts = 0   # switch to subprocess when raw ICMP is blocked
 
     # ------------------------------------------------------------------
     # QThread entry point
@@ -132,13 +133,26 @@ class PingMonitor(QThread):
         seq = self._sequence
         ident = self._identifier
 
-        # --- Raw ICMP attempt ---
-        try:
-            return self._ping_raw(host, ident, seq)
-        except PermissionError:
-            logger.debug("Raw ICMP socket unavailable; using ping.exe fallback.")
-        except OSError as exc:
-            logger.debug("Raw ICMP failed (%s); using ping.exe fallback.", exc)
+        # --- Raw ICMP attempt (skip if driver-level blocking detected) ---
+        if self._raw_consecutive_timeouts < 5:
+            try:
+                result = self._ping_raw(host, ident, seq)
+                if result[1]:  # timed_out — may be kernel-level interception (e.g. Vanguard)
+                    self._raw_consecutive_timeouts += 1
+                    if self._raw_consecutive_timeouts >= 5:
+                        logger.debug(
+                            "Raw ICMP timed out 5× in a row — switching to ping.exe fallback "
+                            "(likely blocked by kernel anti-cheat)."
+                        )
+                else:
+                    self._raw_consecutive_timeouts = 0  # reset on success
+                return result
+            except PermissionError:
+                logger.debug("Raw ICMP socket unavailable; using ping.exe fallback.")
+                self._raw_consecutive_timeouts = 5  # skip raw permanently this session
+            except OSError as exc:
+                logger.debug("Raw ICMP failed (%s); using ping.exe fallback.", exc)
+                self._raw_consecutive_timeouts = 5
 
         # --- subprocess fallback ---
         return self._ping_subprocess(host)
@@ -212,6 +226,11 @@ class PingMonitor(QThread):
         """Request the monitor thread to stop gracefully."""
         self._running = False
         logger.debug("PingMonitor stop requested.")
+
+    @property
+    def host(self) -> str:
+        """Current target host."""
+        return self._host
 
     def set_host(self, host: str) -> None:
         """Change the target host.  Takes effect on the next probe."""

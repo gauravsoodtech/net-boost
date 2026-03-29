@@ -305,8 +305,10 @@ def _set_fullscreen_opt(game_exe_path: str, disable: bool) -> str | None:
         prev = _read_hkcu(_APP_COMPAT_LAYERS, game_exe_path)
         if disable:
             existing = prev[0] if prev else ""
-            new_val  = (existing + " DISABLEDXMAXIMIZEDWINDOWEDMODE").strip()
-            _write_hkcu(_APP_COMPAT_LAYERS, game_exe_path, new_val, winreg.REG_SZ)
+            flag = "DISABLEDXMAXIMIZEDWINDOWEDMODE"
+            if flag not in existing:
+                new_val = (existing + " " + flag).strip()
+                _write_hkcu(_APP_COMPAT_LAYERS, game_exe_path, new_val, winreg.REG_SZ)
             logger.info("fps_booster: fullscreen optimisation disabled for '%s'.", game_exe_path)
         return prev[0] if prev else None
     except Exception as exc:
