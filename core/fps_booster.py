@@ -33,6 +33,7 @@ _GAME_DVR_KEY      = r"Software\Microsoft\Windows\CurrentVersion\GameDVR"
 _APP_COMPAT_LAYERS = r"Software\Microsoft\Windows NT\CurrentVersion\AppCompatFlags\Layers"
 
 # ctypes / Win32 constants
+_SPI_GETANIMATION = 0x0048
 _SPI_SETANIMATION = 0x0049
 
 
@@ -49,26 +50,70 @@ def detect_hybrid_cpu_p_core_mask() -> int:
     """
     Return a CPU affinity bitmask that covers only Performance (P) cores.
 
-    For the Intel Core i7-13650HX (6 P-cores, 8 E-cores) P-core threads are
-    0-11 (6 physical P-cores × 2 HT threads), giving mask 0x0FFF.
+    Works on all Intel hybrid CPUs (12th, 13th, 14th gen, Arrow Lake) by
+    reading per-logical-processor clock speeds from the registry and
+    grouping by frequency.  P-cores run at a higher base clock than E-cores
+    (e.g. 2400 MHz vs 1800 MHz).
 
-    If the current CPU is identified as 13th-gen Intel (ProcessorNameString
-    contains "13"), return 0x0FFF; otherwise return 0xFFFFFFFF (all cores) as
-    a safe fallback.
+    Falls back to ``0xFFFFFFFF`` (all cores) if detection fails or the CPU
+    is not a hybrid architecture.
     """
-    try:
-        proc_name = _read_hklm(
-            r"HARDWARE\DESCRIPTION\System\CentralProcessor\0",
-            "ProcessorNameString",
-        )
-        if isinstance(proc_name, str) and "13" in proc_name:
-            logger.debug("detect_hybrid_cpu_p_core_mask: 13th-gen detected, mask=0x0FFF")
-            return 0x0FFF
-    except Exception as exc:
-        logger.debug("detect_hybrid_cpu_p_core_mask: registry read failed: %s", exc)
+    _PROC_KEY = r"HARDWARE\DESCRIPTION\System\CentralProcessor"
 
-    logger.debug("detect_hybrid_cpu_p_core_mask: fallback mask=0xFFFFFFFF")
-    return 0xFFFFFFFF
+    try:
+        # Read ~MHz for each logical processor.
+        freqs: list[tuple[int, int]] = []  # (logical_index, mhz)
+        i = 0
+        while True:
+            try:
+                mhz = _read_hklm(f"{_PROC_KEY}\\{i}", "~MHz")
+                if mhz is None:
+                    break
+                freqs.append((i, int(mhz)))
+                i += 1
+            except Exception:
+                break
+
+        if len(freqs) < 2:
+            logger.debug("detect_hybrid_cpu: fewer than 2 logical processors found")
+            return 0xFFFFFFFF
+
+        # Group by frequency.
+        freq_values = [f[1] for f in freqs]
+        max_freq = max(freq_values)
+        min_freq = min(freq_values)
+
+        # If all cores run at the same frequency, this is not a hybrid CPU
+        # (or the E-cores are same-clocked, which is rare).
+        if max_freq - min_freq < 100:
+            logger.debug(
+                "detect_hybrid_cpu: uniform frequency (%d MHz) — not hybrid or same-clocked",
+                max_freq,
+            )
+            return 0xFFFFFFFF
+
+        # Threshold: anything within 200 MHz of the max is a P-core.
+        threshold = max_freq - 200
+        p_core_indices = [idx for idx, mhz in freqs if mhz > threshold]
+
+        if not p_core_indices:
+            logger.debug("detect_hybrid_cpu: no P-cores above threshold")
+            return 0xFFFFFFFF
+
+        mask = 0
+        for idx in p_core_indices:
+            mask |= (1 << idx)
+
+        logger.info(
+            "detect_hybrid_cpu: %d P-core threads (of %d total), mask=0x%X "
+            "(P-core: %d MHz, E-core: %d MHz)",
+            len(p_core_indices), len(freqs), mask, max_freq, min_freq,
+        )
+        return mask
+
+    except Exception as exc:
+        logger.debug("detect_hybrid_cpu_p_core_mask: detection failed: %s", exc)
+        return 0xFFFFFFFF
 
 
 def _read_hklm(subkey: str, value_name: str):
@@ -264,31 +309,42 @@ def _start_sysmain() -> None:
 # Visual effects
 # ---------------------------------------------------------------------------
 
-def _disable_animations() -> None:
-    """Suppress window animations via SystemParametersInfo."""
-    class ANIMATIONINFO(ctypes.Structure):
-        _fields_ = [("cbSize", ctypes.c_uint), ("iMinAnimate", ctypes.c_int)]
+class _ANIMATIONINFO(ctypes.Structure):
+    _fields_ = [("cbSize", ctypes.c_uint), ("iMinAnimate", ctypes.c_int)]
 
-    ai = ANIMATIONINFO()
-    ai.cbSize = ctypes.sizeof(ANIMATIONINFO)
+
+def _get_animation_state() -> int:
+    """Read the current iMinAnimate value (1 = animations on, 0 = off)."""
+    ai = _ANIMATIONINFO()
+    ai.cbSize = ctypes.sizeof(_ANIMATIONINFO)
+    ctypes.windll.user32.SystemParametersInfoW(
+        _SPI_GETANIMATION, ctypes.sizeof(_ANIMATIONINFO), ctypes.byref(ai), 0
+    )
+    return ai.iMinAnimate
+
+
+def _disable_animations() -> int:
+    """Suppress window animations. Returns previous iMinAnimate value."""
+    prev = _get_animation_state()
+    ai = _ANIMATIONINFO()
+    ai.cbSize = ctypes.sizeof(_ANIMATIONINFO)
     ai.iMinAnimate = 0
     ctypes.windll.user32.SystemParametersInfoW(
-        _SPI_SETANIMATION, ctypes.sizeof(ANIMATIONINFO), ctypes.byref(ai), 3
+        _SPI_SETANIMATION, ctypes.sizeof(_ANIMATIONINFO), ctypes.byref(ai), 3
     )
-    logger.info("fps_booster: window animations disabled.")
+    logger.info("fps_booster: window animations disabled (was %d).", prev)
+    return prev
 
 
-def _enable_animations() -> None:
-    class ANIMATIONINFO(ctypes.Structure):
-        _fields_ = [("cbSize", ctypes.c_uint), ("iMinAnimate", ctypes.c_int)]
-
-    ai = ANIMATIONINFO()
-    ai.cbSize = ctypes.sizeof(ANIMATIONINFO)
-    ai.iMinAnimate = 1
+def _restore_animations(prev_value: int) -> None:
+    """Restore window animations to a previously saved iMinAnimate value."""
+    ai = _ANIMATIONINFO()
+    ai.cbSize = ctypes.sizeof(_ANIMATIONINFO)
+    ai.iMinAnimate = prev_value
     ctypes.windll.user32.SystemParametersInfoW(
-        _SPI_SETANIMATION, ctypes.sizeof(ANIMATIONINFO), ctypes.byref(ai), 3
+        _SPI_SETANIMATION, ctypes.sizeof(_ANIMATIONINFO), ctypes.byref(ai), 3
     )
-    logger.info("fps_booster: window animations re-enabled.")
+    logger.info("fps_booster: window animations restored to %d.", prev_value)
 
 
 # ---------------------------------------------------------------------------
@@ -385,8 +441,8 @@ def apply(settings: dict, game_pid: int = None) -> dict:
     # --- Visual effects ---
     if settings.get("visual_effects_off"):
         try:
-            _disable_animations()
-            backup["visual_effects_disabled"] = True
+            prev_animate = _disable_animations()
+            backup["visual_effects_prev"] = prev_animate
         except Exception as exc:
             logger.error("fps_booster: visual effects disable failed: %s", exc)
 
@@ -458,9 +514,15 @@ def restore(backup: dict) -> None:
             logger.error("fps_booster: restore SysMain failed: %s", exc)
 
     # --- Visual effects ---
-    if backup.get("visual_effects_disabled"):
+    if "visual_effects_prev" in backup:
         try:
-            _enable_animations()
+            _restore_animations(backup["visual_effects_prev"])
+        except Exception as exc:
+            logger.error("fps_booster: restore visual effects failed: %s", exc)
+    elif backup.get("visual_effects_disabled"):
+        # Legacy backup format (pre-V2): assume animations were on
+        try:
+            _restore_animations(1)
         except Exception as exc:
             logger.error("fps_booster: restore visual effects failed: %s", exc)
 

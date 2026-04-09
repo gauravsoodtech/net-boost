@@ -15,6 +15,7 @@ import logging
 import re
 import socket
 import subprocess
+import winreg
 
 import psutil
 
@@ -218,7 +219,98 @@ def get_current_dns(adapter: str) -> dict:
     Return the current DNS configuration of *adapter*.
 
     Returns ``{"primary": str, "secondary": str, "is_dhcp": bool}``.
+
+    Uses the registry (locale-independent) as the primary source, with
+    netsh parsing as a fallback.
     """
+    result = _get_dns_from_registry(adapter)
+    if result is not None:
+        return result
+
+    # Fallback: parse netsh output (locale-dependent for DHCP detection).
+    return _get_dns_from_netsh(adapter)
+
+
+def _get_dns_from_registry(adapter: str) -> dict | None:
+    """
+    Read DNS config from the registry for *adapter*.
+
+    Searches interface GUID keys for one whose adapter name matches.
+    Returns None if the adapter cannot be found in the registry.
+    """
+    _INTERFACES_KEY = r"SYSTEM\CurrentControlSet\Services\Tcpip\Parameters\Interfaces"
+    try:
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, _INTERFACES_KEY) as root:
+            i = 0
+            while True:
+                try:
+                    guid = winreg.EnumKey(root, i)
+                    i += 1
+                except OSError:
+                    break
+                subkey_path = f"{_INTERFACES_KEY}\\{guid}"
+                try:
+                    with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, subkey_path) as sk:
+                        # Match adapter by checking if the IP address on this
+                        # interface key corresponds to the named adapter.
+                        # Read the static NameServer value (comma-separated IPs).
+                        try:
+                            name_server, _ = winreg.QueryValueEx(sk, "NameServer")
+                        except OSError:
+                            name_server = ""
+
+                        try:
+                            dhcp_name_server, _ = winreg.QueryValueEx(sk, "DhcpNameServer")
+                        except OSError:
+                            dhcp_name_server = ""
+
+                        # We need to verify this GUID belongs to our adapter.
+                        # Match via IP address from psutil.
+                        try:
+                            ip_addr, _ = winreg.QueryValueEx(sk, "DhcpIPAddress")
+                        except OSError:
+                            try:
+                                ip_addr, _ = winreg.QueryValueEx(sk, "IPAddress")
+                                if isinstance(ip_addr, list):
+                                    ip_addr = ip_addr[0] if ip_addr else ""
+                            except OSError:
+                                ip_addr = ""
+
+                        if not ip_addr or ip_addr == "0.0.0.0":
+                            continue
+
+                        # Check if this IP belongs to the requested adapter.
+                        iface_addrs = psutil.net_if_addrs().get(adapter, [])
+                        adapter_ips = {
+                            a.address for a in iface_addrs
+                            if a.family == socket.AF_INET
+                        }
+                        if ip_addr not in adapter_ips:
+                            continue
+
+                        # Found the matching interface.
+                        # Empty NameServer = DHCP mode.
+                        is_dhcp = not name_server.strip()
+                        if is_dhcp:
+                            servers = [s.strip() for s in dhcp_name_server.split(",") if s.strip()]
+                        else:
+                            servers = [s.strip() for s in name_server.split(",") if s.strip()]
+
+                        return {
+                            "primary": servers[0] if len(servers) > 0 else "",
+                            "secondary": servers[1] if len(servers) > 1 else "",
+                            "is_dhcp": is_dhcp,
+                        }
+                except OSError:
+                    continue
+    except OSError as exc:
+        logger.debug("Registry DNS lookup failed: %s", exc)
+
+    return None
+
+
+def _get_dns_from_netsh(adapter: str) -> dict:
+    """Fallback: parse netsh output (locale-dependent DHCP detection)."""
     try:
         output = _run_netsh(["interface", "ip", "show", "dns", f'name="{adapter}"'])
     except subprocess.CalledProcessError as exc:
@@ -237,9 +329,9 @@ def get_current_dns(adapter: str) -> dict:
             servers.append(ip_match.group(1))
 
     return {
-        "primary":   servers[0] if len(servers) > 0 else "",
+        "primary": servers[0] if len(servers) > 0 else "",
         "secondary": servers[1] if len(servers) > 1 else "",
-        "is_dhcp":   is_dhcp,
+        "is_dhcp": is_dhcp,
     }
 
 
@@ -268,6 +360,60 @@ def set_dhcp_dns(adapter: str) -> None:
 def get_providers() -> list[str]:
     """Return the list of available DNS provider names."""
     return list(DNS_PROVIDERS.keys())
+
+
+def benchmark_dns_providers(
+    domains: list[str] | None = None,
+    repeats: int = 3,
+) -> list[dict]:
+    """
+    Benchmark DNS resolution speed for each provider.
+
+    Resolves *domains* via each provider's primary server and measures
+    average resolution time.  Returns a list sorted fastest-first::
+
+        [{"provider": "cloudflare", "avg_ms": 12.3, "failures": 0}, ...]
+
+    Uses ``nslookup`` with a specific server to bypass the system resolver.
+    """
+    import time
+
+    if domains is None:
+        domains = ["riot.com", "steampowered.com", "epicgames.com", "battlenet.com"]
+
+    results: list[dict] = []
+    for name, info in DNS_PROVIDERS.items():
+        if info is None:
+            continue  # skip "custom"
+        server = info["primary"]
+        total_ms = 0.0
+        failures = 0
+        attempts = 0
+
+        for domain in domains:
+            for _ in range(repeats):
+                attempts += 1
+                try:
+                    t0 = time.perf_counter()
+                    subprocess.run(
+                        ["nslookup", domain, server],
+                        capture_output=True, text=True, timeout=5,
+                    )
+                    elapsed = (time.perf_counter() - t0) * 1000.0
+                    total_ms += elapsed
+                except (subprocess.TimeoutExpired, Exception):
+                    failures += 1
+
+        successful = attempts - failures
+        avg_ms = round(total_ms / successful, 1) if successful > 0 else 9999.0
+        results.append({
+            "provider": name,
+            "avg_ms": avg_ms,
+            "failures": failures,
+        })
+
+    results.sort(key=lambda r: r["avg_ms"])
+    return results
 
 
 def apply(

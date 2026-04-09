@@ -181,7 +181,18 @@ def apply(settings: dict) -> dict:
     if settings.get("disable_bss_scan"):
         tweaks.append(("BSSSelectorCLsupport", 0))
     if settings.get("prefer_6ghz"):
-        tweaks.append(("PreferredBand", 3))
+        # Check adapter capability before applying 6GHz preference.
+        # WiFi 6E adapters expose a "PreferredBand" value that accepts 3 (6GHz).
+        # Non-6E adapters may not have this parameter, causing a silent no-op.
+        supports_6ghz = _read_reg(adapter_key, "PreferredBand") is not None
+        if supports_6ghz:
+            tweaks.append(("PreferredBand", 3))
+        else:
+            logger.warning(
+                "wifi_optimizer: adapter does not expose PreferredBand — "
+                "6GHz preference skipped (adapter may not support WiFi 6E)."
+            )
+            backup["_6ghz_unsupported"] = True
     if settings.get("throughput_booster"):
         tweaks.append(("Throughput Booster", 1))
     if settings.get("disable_mimo_power_save"):

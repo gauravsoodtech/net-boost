@@ -200,49 +200,38 @@ def apply(settings: dict) -> dict:
 
     Returns a *backup* dict suitable for :func:`restore`.
     """
-    backup: dict = {}
+    backup: dict = {"_registry": []}
     gpu_key = get_gpu_registry_key()
+
+    def _backup_and_write(subkey, vname, new_val):
+        original = _read_reg(winreg.HKEY_LOCAL_MACHINE, subkey, vname)
+        backup["_registry"].append({
+            "hive": "hklm", "subkey": subkey,
+            "value_name": vname, "original": original,
+        })
+        try:
+            _write_reg(winreg.HKEY_LOCAL_MACHINE, subkey, vname, new_val)
+        except OSError:
+            pass
 
     # --- Dynamic P-State ---
     if settings.get("dynamic_pstate_off"):
-        subkey = _NVTWEAK_GLOBAL_HKLM
-        vname  = "DisableDynamicPstate"
-        backup[f"hklm:{subkey}:{vname}"] = _read_reg(winreg.HKEY_LOCAL_MACHINE, subkey, vname)
-        try:
-            _write_reg(winreg.HKEY_LOCAL_MACHINE, subkey, vname, 1)
-        except OSError:
-            pass
+        _backup_and_write(_NVTWEAK_GLOBAL_HKLM, "DisableDynamicPstate", 1)
 
     # --- Ultra-low latency mode (DX submission depth) ---
     if settings.get("ull_mode"):
-        subkey = _NVTWEAK_SOFTWARE
-        vname  = "ULMDMode"
-        backup[f"hklm:{subkey}:{vname}"] = _read_reg(winreg.HKEY_LOCAL_MACHINE, subkey, vname)
-        try:
-            _write_reg(winreg.HKEY_LOCAL_MACHINE, subkey, vname, 1)
-        except OSError:
-            pass
+        _backup_and_write(_NVTWEAK_SOFTWARE, "ULMDMode", 1)
 
     # --- Max power / disable PowerMizer ---
     if settings.get("max_power") and gpu_key:
         for vname, new_val in (("PowerMizerEnable", 0), ("PowerMizerLevel", 1)):
-            backup[f"hklm:{gpu_key}:{vname}"] = _read_reg(winreg.HKEY_LOCAL_MACHINE, gpu_key, vname)
-            try:
-                _write_reg(winreg.HKEY_LOCAL_MACHINE, gpu_key, vname, new_val)
-            except OSError:
-                pass
+            _backup_and_write(gpu_key, vname, new_val)
 
     # --- Hardware-Accelerated GPU Scheduling (HAGS) ---
     # HwSchMode: 2 = enabled (default), 1 = disabled
     if settings.get("disable_hags"):
-        subkey = _GRAPHICS_DRIVERS
-        vname  = "HwSchMode"
-        backup[f"hklm:{subkey}:{vname}"] = _read_reg(winreg.HKEY_LOCAL_MACHINE, subkey, vname)
-        try:
-            _write_reg(winreg.HKEY_LOCAL_MACHINE, subkey, vname, 1)
-            logger.info("nvidia_optimizer: HAGS disabled (requires reboot to take effect).")
-        except OSError:
-            pass
+        _backup_and_write(_GRAPHICS_DRIVERS, "HwSchMode", 1)
+        logger.info("nvidia_optimizer: HAGS disabled (requires reboot to take effect).")
 
     # --- nvidia-smi persistent mode ---
     smi_available = is_nvidia_smi_available()
@@ -262,12 +251,24 @@ def restore(backup: dict) -> None:
     """
     Restore NVIDIA registry values from *backup* (as returned by :func:`apply`).
 
+    Handles both V2 structured format (``_registry`` list of dicts) and
+    legacy V1 compound-string format (``"hklm:<subkey>:<vname>"`` keys).
     Also disables nvidia-smi persistent mode if it was enabled.
     """
+    # V2 structured format
+    for entry in backup.get("_registry", []):
+        subkey = entry.get("subkey", "")
+        vname = entry.get("value_name", "")
+        original = entry.get("original")
+        if subkey and vname:
+            _restore_value(winreg.HKEY_LOCAL_MACHINE, subkey, vname, original)
+
+    # Legacy V1 compound-string format (for state.json compatibility)
     for compound_key, original in backup.items():
         if compound_key.startswith("_"):
             continue
-        # compound_key format: "hklm:<subkey>:<value_name>"
+        if not isinstance(compound_key, str) or ":" not in compound_key:
+            continue
         parts = compound_key.split(":", 2)
         if len(parts) != 3:
             continue

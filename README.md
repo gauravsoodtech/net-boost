@@ -1,8 +1,8 @@
 <div align="center">
 
-# ⚡ NetBoost
+# ⚡ NetBoost V2 Premium
 
-### Gaming Network Optimizer for Windows
+### Advanced Gaming Network Optimizer for Windows
 
 **Eliminate ping spikes · Maximize FPS · Auto-tune your system for competitive gaming**
 
@@ -11,6 +11,8 @@
 [![Windows](https://img.shields.io/badge/Windows_11-0078D4?style=for-the-badge&logo=windows&logoColor=white)](https://microsoft.com/windows)
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 [![Built with Claude](https://img.shields.io/badge/Built%20with-Claude%20AI-D97706?style=for-the-badge&logo=anthropic&logoColor=white)](https://claude.ai)
+
+> **Version 2 Released!** Features a brand-new Neo-Dark Glassmorphic UI with animated tab transitions, enhanced toggle switches, reinforced raw-socket fallback validation (fixes false 100% loss bug), and 100% automated integration test coverage.
 
 ![NetBoost Dashboard](https://i.imgur.com/placeholder.png)
 

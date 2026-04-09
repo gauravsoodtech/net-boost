@@ -8,6 +8,7 @@ Windows versions always match regardless of casing.
 """
 
 import logging
+import threading
 import time
 from typing import List, Set
 
@@ -43,6 +44,7 @@ class ProcessWatcher(QThread):
         super().__init__(parent)
         self._poll_interval_ms = poll_interval_ms
         self._running = False
+        self._lock = threading.Lock()
         # Canonical watch-set: lower-cased exe names.
         self._watch_set: Set[str] = self._normalise(game_list)
         # Set of watched exes that were running on the last poll.
@@ -74,7 +76,8 @@ class ProcessWatcher(QThread):
             logger.warning("psutil.process_iter error: %s", exc)
             return set()
 
-        return self._watch_set & running_names
+        with self._lock:
+            return self._watch_set & running_names
 
     # ------------------------------------------------------------------
     # QThread entry point
@@ -96,7 +99,8 @@ class ProcessWatcher(QThread):
             t_start = time.perf_counter()
 
             current = self._current_watched_running()
-            previous = self._running_set
+            with self._lock:
+                previous = set(self._running_set)
 
             # Detect launches (new entries).
             launched = current - previous
@@ -110,7 +114,8 @@ class ProcessWatcher(QThread):
                 logger.info("Game exited: %s", exe)
                 self.game_exited.emit(exe)
 
-            self._running_set = current
+            with self._lock:
+                self._running_set = current
 
             # Sleep for the remainder of the poll interval in short slices so
             # that stop() is responsive.
@@ -147,17 +152,18 @@ class ProcessWatcher(QThread):
         tracking (no ``game_exited`` signal is emitted for the removal itself).
         """
         new_watch = self._normalise(game_list)
-        removed = self._watch_set - new_watch
-        added = new_watch - self._watch_set
+        with self._lock:
+            removed = self._watch_set - new_watch
+            added = new_watch - self._watch_set
 
-        if removed:
-            logger.debug("ProcessWatcher: removed from watch-list: %s", ", ".join(sorted(removed)))
-        if added:
-            logger.debug("ProcessWatcher: added to watch-list: %s", ", ".join(sorted(added)))
+            if removed:
+                logger.debug("ProcessWatcher: removed from watch-list: %s", ", ".join(sorted(removed)))
+            if added:
+                logger.debug("ProcessWatcher: added to watch-list: %s", ", ".join(sorted(added)))
 
-        self._watch_set = new_watch
-        # Drop any running entries that are no longer being watched.
-        self._running_set &= new_watch
+            self._watch_set = new_watch
+            # Drop any running entries that are no longer being watched.
+            self._running_set &= new_watch
 
     # ------------------------------------------------------------------
     # Queries
@@ -168,4 +174,5 @@ class ProcessWatcher(QThread):
         Return a sorted list of currently running watched exe names
         (lower-cased), based on the last completed poll.
         """
-        return sorted(self._running_set)
+        with self._lock:
+            return sorted(self._running_set)

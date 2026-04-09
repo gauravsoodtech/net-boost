@@ -281,7 +281,7 @@ def main():
         ("Admin check", test_admin),
         ("StateGuard write + atomic restore", test_state_guard),
         ("Ping monitor (1.1.1.1, 5 readings)", test_ping_monitor),
-        ("DNS switch (Cloudflare → restore)", test_dns_switch),
+        ("DNS switch (Cloudflare -> restore)", test_dns_switch),
         ("TCP registry write + restore", test_tcp_registry),
         ("Service status check (wuauserv)", test_service_status),
         ("Process watcher (notepad.exe detection)", test_process_watcher),

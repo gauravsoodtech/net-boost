@@ -228,18 +228,18 @@ def restore(backup: dict) -> None:
 
     Values that did not previously exist are deleted.
     """
+    # Resolve GUIDs once for all adapters.
+    guids = get_interface_guids()
+
     # Restore per-interface values.
     for adapter_name, iface_backup in backup.get("interfaces", {}).items():
+        key_path = guids.get(adapter_name)
+        if key_path is None:
+            logger.warning(
+                "Cannot restore adapter '%s': GUID not found.", adapter_name,
+            )
+            continue
         for value_name, original in iface_backup.items():
-            # We need the key path; re-resolve by adapter name.
-            guids = get_interface_guids()
-            key_path = guids.get(adapter_name)
-            if key_path is None:
-                logger.warning(
-                    "Cannot restore '%s' for adapter '%s': GUID not found.",
-                    value_name, adapter_name,
-                )
-                continue
             _restore_value(key_path, value_name, original)
 
     # Restore global values.
@@ -253,9 +253,14 @@ def _restore_value(key_path: str, value_name: str, original) -> None:
     """Write *original* back, or delete the value if *original* is None."""
     if original is None:
         _delete_reg(key_path, value_name)
-    else:
-        value, vtype = original
+    elif isinstance(original, (tuple, list)) and len(original) >= 2:
+        value, vtype = original[0], original[1]
         _write_reg(key_path, value_name, value, vtype)
+    else:
+        logger.warning(
+            "Unexpected backup format for %s\\%s: %r — skipping",
+            key_path, value_name, original,
+        )
 
 
 # ---------------------------------------------------------------------------

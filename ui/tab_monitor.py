@@ -200,6 +200,13 @@ class DiagnosticPanel(QFrame):
         # Insert at position 0 (most recent first), before stretch
         self._alerts_layout.insertWidget(0, row_frame)
 
+        # Cap alert history at 50 entries to prevent memory leak
+        _MAX_ALERTS = 50
+        while self._alerts_layout.count() > _MAX_ALERTS + 1:  # +1 for stretch
+            item = self._alerts_layout.takeAt(self._alerts_layout.count() - 2)
+            if item and item.widget() and item.widget() is not self._no_alerts_lbl:
+                item.widget().deleteLater()
+
     def clear_alerts(self) -> None:
         """Remove all alert rows."""
         while self._alerts_layout.count():

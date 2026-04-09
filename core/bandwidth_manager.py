@@ -259,11 +259,19 @@ def restore(backup: dict) -> None:
 # ---------------------------------------------------------------------------
 
 def _sanitise_name(path: str) -> str:
-    """Return a registry-safe identifier derived from a file path."""
+    """Return a registry-safe identifier derived from a file path.
+
+    Includes a short hash of the full path to prevent collisions when
+    two games share the same executable basename (e.g. game.exe in
+    different directories).
+    """
+    import hashlib
     import os
     import re
     stem = os.path.splitext(os.path.basename(path))[0]
-    return re.sub(r"[^A-Za-z0-9_\-]", "_", stem)[:64]
+    path_hash = hashlib.md5(path.lower().encode()).hexdigest()[:8]
+    safe_stem = re.sub(r"[^A-Za-z0-9_\-]", "_", stem)[:48]
+    return f"{safe_stem}_{path_hash}"
 
 
 # ---------------------------------------------------------------------------

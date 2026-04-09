@@ -138,12 +138,20 @@ class PingMonitor(QThread):
             try:
                 result = self._ping_raw(host, ident, seq)
                 if result[1]:  # timed_out — may be kernel-level interception (e.g. Vanguard)
-                    self._raw_consecutive_timeouts += 1
-                    if self._raw_consecutive_timeouts >= 5:
-                        logger.debug(
-                            "Raw ICMP timed out 5× in a row — switching to ping.exe fallback "
-                            "(likely blocked by kernel anti-cheat)."
-                        )
+                    # To avoid false 100% loss on startup when raw sockets are stealthily blocked,
+                    # validate the timeout with ping.exe on the very first few failures.
+                    fallback_result = self._ping_subprocess(host)
+                    if not fallback_result[1]:  # Subprocess succeeded! Raw socket is blocked.
+                        logger.debug("Raw raw ICMP timed out but ping.exe succeeded. Switching to fallback permanently.")
+                        self._raw_consecutive_timeouts = 5  # Switch permanently
+                        return fallback_result
+                    else:
+                        self._raw_consecutive_timeouts += 1
+                        if self._raw_consecutive_timeouts >= 5:
+                            logger.debug(
+                                "Raw ICMP timed out 5× in a row — switching to ping.exe fallback "
+                                "(likely blocked by kernel anti-cheat or local firewall)."
+                            )
                 else:
                     self._raw_consecutive_timeouts = 0  # reset on success
                 return result
@@ -153,18 +161,38 @@ class PingMonitor(QThread):
             except OSError as exc:
                 logger.debug("Raw ICMP failed (%s); using ping.exe fallback.", exc)
                 self._raw_consecutive_timeouts = 5
+        else:
+            # Periodically retry raw ICMP every ~60s (120 iterations at 500ms)
+            # to recover when anti-cheat unloads or network driver resets.
+            if seq % 120 == 0:
+                try:
+                    result = self._ping_raw(host, ident, seq)
+                    if not result[1]:  # success!
+                        self._raw_consecutive_timeouts = 0
+                        logger.info(
+                            "Raw ICMP recovered; switching back from ping.exe fallback."
+                        )
+                        return result
+                except Exception:
+                    pass  # stay on subprocess fallback
 
         # --- subprocess fallback ---
         return self._ping_subprocess(host)
 
     def _ping_raw(self, host: str, ident: int, seq: int) -> Tuple[float, bool]:
         """Send a raw ICMP echo request and wait for the reply."""
+        # Resolve hostname to IP once so we can validate reply source.
+        try:
+            target_ip = socket.gethostbyname(host)
+        except socket.gaierror:
+            return -1.0, True
+
         sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_ICMP)
         sock.settimeout(2.0)
         try:
             packet = _build_icmp_packet(ident, seq)
             t_send = time.perf_counter()
-            sock.sendto(packet, (host, 0))
+            sock.sendto(packet, (target_ip, 0))
 
             while True:
                 try:
@@ -173,6 +201,12 @@ class PingMonitor(QThread):
                     return -1.0, True
 
                 t_recv = time.perf_counter()
+
+                # Validate the reply is from the target host, not an
+                # intermediate router (ICMP redirect, TTL exceeded, etc.).
+                if addr[0] != target_ip:
+                    continue
+
                 # IP header is 20 bytes; ICMP reply starts after.
                 if len(raw_reply) < 28:
                     continue

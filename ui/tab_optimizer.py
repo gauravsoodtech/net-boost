@@ -10,40 +10,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 
-from .widgets.toggle_switch import ToggleSwitch
-
-
-# ── Helpers ───────────────────────────────────────────────────────────────────
-
-class _ToggleRow(QWidget):
-    def __init__(self, key: str, label: str, parent=None):
-        super().__init__(parent)
-        self.key = key
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(10)
-
-        self.switch = ToggleSwitch()
-        layout.addWidget(self.switch)
-
-        lbl = QLabel(label)
-        lbl.setStyleSheet("background: transparent; border: none; color: #e0e0e0;")
-        layout.addWidget(lbl)
-        layout.addStretch()
-
-        self._status_badge = QLabel("● Active")
-        self._status_badge.setStyleSheet(
-            "color: #4caf50; font-size: 10px; font-weight: 700;"
-            " background: transparent; border: none;"
-        )
-        self._status_badge.setVisible(False)
-        layout.addWidget(self._status_badge)
-
-        self.setStyleSheet("background: transparent;")
-
-    def set_applied(self, applied: bool) -> None:
-        self._status_badge.setVisible(applied)
+from .widgets.toggle_row import ToggleRow as _ToggleRow
 
 
 # ── Network Optimizer Tab ─────────────────────────────────────────────────────
@@ -165,8 +132,29 @@ class TabOptimizer(QWidget):
         custom_layout.addWidget(self._dns_secondary)
         custom_layout.addStretch()
 
+        # Validate custom DNS IPs on text change
+        self._dns_primary.textChanged.connect(
+            lambda t: self._validate_dns_input(self._dns_primary, t))
+        self._dns_secondary.textChanged.connect(
+            lambda t: self._validate_dns_input(self._dns_secondary, t))
+
         self._custom_dns_frame.setVisible(False)
         dns_layout.addWidget(self._custom_dns_frame)
+
+        # DNS speed test
+        dns_test_row = QHBoxLayout()
+        dns_test_row.setContentsMargins(52, 0, 0, 0)
+        dns_test_row.setSpacing(10)
+        self._dns_test_btn = QPushButton("Test DNS Speed")
+        self._dns_test_btn.setFixedWidth(140)
+        self._dns_test_btn.clicked.connect(self._on_dns_test)
+        self._dns_test_result = QLabel("")
+        self._dns_test_result.setStyleSheet("color: #9e9e9e; background: transparent; border: none;")
+        dns_test_row.addWidget(self._dns_test_btn)
+        dns_test_row.addWidget(self._dns_test_result)
+        dns_test_row.addStretch()
+        dns_layout.addLayout(dns_test_row)
+
         layout.addWidget(dns_group)
 
         # ── Service Management ────────────────────────────────────────────────
@@ -234,9 +222,74 @@ class TabOptimizer(QWidget):
         self.settings_restored.emit()
         self.set_settings({key: True for key in self._toggle_rows})
 
+    @staticmethod
+    def _validate_dns_input(field, text: str) -> None:
+        """Show red border on invalid IP address."""
+        import ipaddress
+        text = text.strip()
+        if not text:
+            field.setStyleSheet("")
+            return
+        try:
+            ipaddress.ip_address(text)
+            field.setStyleSheet("border: 1px solid #4caf50;")
+        except ValueError:
+            field.setStyleSheet("border: 1px solid #f44336;")
+
     def _on_dns_provider_changed(self, index: int) -> None:
         is_custom = (self._dns_combo.currentText() == "Custom")
         self._custom_dns_frame.setVisible(is_custom)
+
+    def _on_dns_test(self) -> None:
+        """Run DNS benchmark in a background thread and display results."""
+        self._dns_test_btn.setEnabled(False)
+        self._dns_test_btn.setText("Testing...")
+        self._dns_test_result.setText("Benchmarking all providers...")
+        self._dns_test_result.setStyleSheet("color: #4fc3f7; background: transparent; border: none;")
+
+        from PyQt5.QtCore import QThreadPool, QRunnable, QObject, pyqtSignal
+
+        class _Signals(QObject):
+            done = pyqtSignal(list)
+
+        class _Worker(QRunnable):
+            def __init__(self, signals):
+                super().__init__()
+                self.signals = signals
+                self.setAutoDelete(True)
+            def run(self):
+                from core.dns_switcher import benchmark_dns_providers
+                results = benchmark_dns_providers()
+                self.signals.done.emit(results)
+
+        signals = _Signals()
+        signals.done.connect(self._on_dns_test_done)
+        QThreadPool.globalInstance().start(_Worker(signals))
+
+    def _on_dns_test_done(self, results: list) -> None:
+        self._dns_test_btn.setEnabled(True)
+        self._dns_test_btn.setText("Test DNS Speed")
+        if not results:
+            self._dns_test_result.setText("No results")
+            return
+
+        best = results[0]
+        parts = [f"{r['provider']}: {r['avg_ms']}ms" for r in results[:4]]
+        self._dns_test_result.setText("  |  ".join(parts))
+        self._dns_test_result.setStyleSheet("color: #4caf50; background: transparent; border: none;")
+
+        # Auto-select fastest provider in the combo box
+        name_map = {
+            "opendns": "OpenDNS 208.67.222.222",
+            "cloudflare": "Cloudflare 1.1.1.1",
+            "google": "Google 8.8.8.8",
+            "quad9": "Quad9 9.9.9.9",
+        }
+        best_display = name_map.get(best["provider"])
+        if best_display:
+            idx = self._dns_combo.findText(best_display)
+            if idx >= 0:
+                self._dns_combo.setCurrentIndex(idx)
 
     def _on_apply(self) -> None:
         self.settings_applied.emit(self.get_settings())

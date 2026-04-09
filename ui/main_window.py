@@ -8,9 +8,9 @@ from collections import deque
 
 from PyQt5.QtWidgets import (
     QMainWindow, QTabWidget, QWidget, QVBoxLayout,
-    QStatusBar, QLabel, QMessageBox, QApplication
+    QStatusBar, QLabel, QMessageBox, QApplication, QGraphicsOpacityEffect
 )
-from PyQt5.QtCore import Qt, QTimer, QThreadPool, QRunnable, QObject, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import Qt, QTimer, QThreadPool, QRunnable, QObject, pyqtSignal, pyqtSlot, QPropertyAnimation
 from PyQt5.QtGui import QCloseEvent
 
 logger = logging.getLogger(__name__)
@@ -176,6 +176,63 @@ class MainWindow(QMainWindow):
         # Consecutive jitter spike counter for proactive health alerts
         self._consecutive_jitter_spikes: int = 0
 
+        # Adaptive engine (V2) — auto-adjusts settings based on network conditions
+        self._init_adaptive_engine()
+
+    # ------------------------------------------------------------------ Adaptive engine
+
+    def _init_adaptive_engine(self):
+        from core.adaptive_engine import (
+            AdaptiveEngine, DnsFailoverRule, PingSpikeRule, BackgroundEscalationRule,
+        )
+        self._adaptive_engine = AdaptiveEngine()
+
+        # DNS failover — cycle providers when loss > 10% for 30s
+        self._adaptive_engine.add_rule(DnsFailoverRule(
+            dns_switcher_factory=self._get_dns_switcher,
+            state_guard=self.state_guard,
+        ))
+
+        # Ping spike — enable LSO disable when 3+ spikes > 50ms in 60s
+        self._adaptive_engine.add_rule(PingSpikeRule(
+            wifi_optimizer_factory=self._get_wifi_optimizer,
+            state_guard=self.state_guard,
+        ))
+
+        # Background escalation — pause services when loss spikes during gaming
+        self._adaptive_engine.add_rule(BackgroundEscalationRule(
+            bg_killer_factory=self._get_background_killer,
+            state_guard=self.state_guard,
+        ))
+
+        # Actions show up in the monitor alert log
+        self._adaptive_engine.set_action_callback(self._on_adaptive_action)
+
+    def _get_dns_switcher(self):
+        from core.dns_switcher import DnsSwitcher
+        if self._dns_switcher is None:
+            self._dns_switcher = DnsSwitcher()
+        return self._dns_switcher
+
+    def _get_wifi_optimizer(self):
+        from core.wifi_optimizer import WifiOptimizer
+        if self._wifi_optimizer is None:
+            self._wifi_optimizer = WifiOptimizer()
+        return self._wifi_optimizer
+
+    def _get_background_killer(self):
+        from core.background_killer import BackgroundKiller
+        if self._background_killer is None:
+            self._background_killer = BackgroundKiller()
+        return self._background_killer
+
+    def _on_adaptive_action(self, message: str):
+        """Callback from AdaptiveEngine when a rule activates/deactivates."""
+        logger.info("Adaptive: %s", message)
+        self.tab_monitor.add_alert(message)
+        style = "warning" if "activated" in message else "info"
+        self._toast.show_message(message, style)
+
     # ------------------------------------------------------------------ UI setup
 
     def _setup_ui(self):
@@ -194,6 +251,15 @@ class MainWindow(QMainWindow):
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.North)
         layout.addWidget(self.tabs)
+
+        # V2 Premium Additions: Smooth Alpha Fade on Tab Change
+        self._tab_opacity = QGraphicsOpacityEffect(self.tabs)
+        self.tabs.setGraphicsEffect(self._tab_opacity)
+        self._tab_anim = QPropertyAnimation(self._tab_opacity, b"opacity", self)
+        self._tab_anim.setDuration(150)
+        self._tab_anim.setStartValue(0.5)
+        self._tab_anim.setEndValue(1.0)
+        self.tabs.currentChanged.connect(lambda idx: self._tab_anim.start())
 
         self._init_tabs()
 
@@ -300,6 +366,9 @@ class MainWindow(QMainWindow):
         self.tab_monitor.add_reading(host, latency_ms, timed_out)
         self._check_connectivity_health(loss_pct, jitter or 0.0)
 
+        # Feed the adaptive engine
+        self._adaptive_engine.on_reading(host, latency_ms, timed_out)
+
     def _compute_jitter(self, readings: list) -> float:
         if len(readings) < 2:
             return 0.0
@@ -390,28 +459,46 @@ class MainWindow(QMainWindow):
     def _activate_game_mode(self, exe_name: str):
         """Apply all tab settings when Game Mode is enabled."""
         logger.info(f"Activating game mode" + (f" for {exe_name}" if exe_name else ""))
+        any_succeeded = False
+        failed_sections = []
+
         try:
             self._apply_wifi(self.tab_wifi.get_settings())
+            self._applied_settings["wifi"] = self.tab_wifi.get_settings()
+            any_succeeded = True
         except Exception as e:
             logger.warning(f"Wi-Fi game mode apply failed: {e}")
+            failed_sections.append("Wi-Fi")
+
         try:
             self._apply_fps(self.tab_fps.get_settings())
+            self._applied_settings["fps"] = self.tab_fps.get_settings()
+            any_succeeded = True
         except Exception as e:
             logger.warning(f"FPS game mode apply failed: {e}")
+            failed_sections.append("FPS")
+
         try:
             self._apply_optimizer(self.tab_optimizer.get_settings())
+            self._applied_settings["optimizer"] = self.tab_optimizer.get_settings()
+            any_succeeded = True
         except Exception as e:
             logger.warning(f"Optimizer game mode apply failed: {e}")
-        self._game_mode_applied = True
-        self._applied_settings["wifi"] = self.tab_wifi.get_settings()
-        self._applied_settings["fps"] = self.tab_fps.get_settings()
-        self._applied_settings["optimizer"] = self.tab_optimizer.get_settings()
+            failed_sections.append("Optimizer")
+
+        self._game_mode_applied = any_succeeded
         self.tab_monitor.update_applied_settings(self._applied_settings)
+
         # Start GPU temp polling if nvidia settings are on
         fps = self._applied_settings.get("fps", {})
         if fps.get("nvidia_max_perf") or fps.get("nvidia_ull"):
             self._gpu_temp_timer.start()
-        self._toast.show_message("Game Mode: all optimizations applied", "success")
+
+        if failed_sections:
+            msg = f"Game Mode: partial — {', '.join(failed_sections)} failed"
+            self._toast.show_message(msg, "warning")
+        else:
+            self._toast.show_message("Game Mode: all optimizations applied", "success")
 
     def _deactivate_game_mode(self):
         """Restore settings only if Game Mode was the one that applied them."""
@@ -629,70 +716,99 @@ class MainWindow(QMainWindow):
             self._toast.show_message("Optimizer apply failed", "error")
 
     def _apply_optimizer(self, settings: dict):
-        errors = []
+        from core.transaction import ApplyTransaction
+
+        tx = ApplyTransaction()
 
         # TCP
         if settings.get("tcp_no_delay") or settings.get("tcp_ack_freq") or settings.get("tcp_window_scale"):
-            try:
-                from core.network_optimizer import NetworkOptimizer
-                if self._network_optimizer is None:
-                    self._network_optimizer = NetworkOptimizer()
-                net_settings = dict(settings)
-                net_settings["window_scaling"] = settings.get("tcp_window_scale")
-                backup = self._network_optimizer.apply(net_settings)
-                if self.state_guard:
-                    self.state_guard.record_tcp_backup(backup)
-            except Exception as e:
-                logger.error(f"TCP apply error: {e}")
-                errors.append("TCP")
+            from core.network_optimizer import NetworkOptimizer
+            if self._network_optimizer is None:
+                self._network_optimizer = NetworkOptimizer()
+            net_settings = dict(settings)
+            net_settings["window_scaling"] = settings.get("tcp_window_scale")
+            net_opt = self._network_optimizer
+            tx.add_step(
+                "TCP",
+                lambda: net_opt.apply(net_settings),
+                lambda backup: net_opt.restore(backup),
+            )
 
         # DNS
         if settings.get("switch_dns") and settings.get("dns_provider"):
-            try:
-                from core.dns_switcher import DnsSwitcher
-                if self._dns_switcher is None:
-                    self._dns_switcher = DnsSwitcher()
-                _dns_name_map = {
-                    "OpenDNS 208.67.222.222": "opendns",
-                    "Cloudflare 1.1.1.1":     "cloudflare",
-                    "Google 8.8.8.8":         "google",
-                    "Quad9 9.9.9.9":          "quad9",
-                    "Custom":                 "custom",
-                }
-                provider_key = _dns_name_map.get(settings["dns_provider"],
-                                                  settings["dns_provider"].lower())
-                backup = self._dns_switcher.apply(
+            from core.dns_switcher import DnsSwitcher
+            if self._dns_switcher is None:
+                self._dns_switcher = DnsSwitcher()
+            _dns_name_map = {
+                "OpenDNS 208.67.222.222": "opendns",
+                "Cloudflare 1.1.1.1":     "cloudflare",
+                "Google 8.8.8.8":         "google",
+                "Quad9 9.9.9.9":          "quad9",
+                "Custom":                 "custom",
+            }
+            provider_key = _dns_name_map.get(settings["dns_provider"],
+                                              settings["dns_provider"].lower())
+            dns = self._dns_switcher
+            dns_primary = settings.get("dns_primary")
+            dns_secondary = settings.get("dns_secondary")
+            tx.add_step(
+                "DNS",
+                lambda: dns.apply(
                     provider_key,
-                    custom_primary=settings.get("dns_primary"),
-                    custom_secondary=settings.get("dns_secondary"),
-                )
-                if self.state_guard:
-                    self.state_guard.record_dns_backup(backup)
-            except Exception as e:
-                logger.error(f"DNS apply error: {e}")
-                errors.append("DNS")
+                    custom_primary=dns_primary,
+                    custom_secondary=dns_secondary,
+                ),
+                lambda backup: dns.restore(backup),
+            )
 
         # Background killer
         if settings.get("pause_windows_update") or settings.get("pause_onedrive") or settings.get("pause_bits") or settings.get("pause_telemetry"):
-            try:
-                from core.background_killer import BackgroundKiller
-                if self._background_killer is None:
-                    self._background_killer = BackgroundKiller()
-                backup = self._background_killer.apply(settings)
-                if self.state_guard:
-                    for svc in backup.get("services_backup", []):
-                        self.state_guard.add_paused_service(svc["name"])
-                    for pid in backup.get("suspended_pids", []):
-                        self.state_guard.add_suspended_pid(pid)
-            except Exception as e:
-                logger.error(f"Background killer apply error: {e}")
-                errors.append("Services")
+            from core.background_killer import BackgroundKiller
+            if self._background_killer is None:
+                self._background_killer = BackgroundKiller()
+            bk = self._background_killer
+            tx.add_step(
+                "Services",
+                lambda: bk.apply(settings),
+                lambda backup: self._restore_background_killer(backup),
+            )
 
-        if errors:
-            self._set_status(f"Applied with errors: {', '.join(errors)}")
-            raise RuntimeError(f"Optimizer errors: {', '.join(errors)}")
-        else:
-            self._set_status("All network optimizations applied")
+        # Execute all-or-nothing
+        from core.transaction import TransactionError
+        try:
+            results = tx.execute()
+        except TransactionError as exc:
+            self._set_status(f"Apply failed at {exc.failed_step} — rolled back")
+            raise RuntimeError(str(exc)) from exc
+
+        # Record backups in state_guard only after all steps succeed
+        if self.state_guard:
+            if "TCP" in results:
+                self.state_guard.record_tcp_backup(results["TCP"])
+            if "DNS" in results:
+                self.state_guard.record_dns_backup(results["DNS"])
+            if "Services" in results:
+                svc_backup = results["Services"]
+                for svc in svc_backup.get("services_backup", []):
+                    self.state_guard.add_paused_service(svc["name"])
+                for pid in svc_backup.get("suspended_pids", []):
+                    self.state_guard.add_suspended_pid(pid)
+
+        self._set_status("All network optimizations applied")
+
+    def _restore_background_killer(self, backup: dict):
+        """Helper to reverse background_killer.apply() during rollback."""
+        from core.background_killer import resume_service, resume_process
+        for svc in backup.get("services_backup", []):
+            try:
+                resume_service(svc["name"])
+            except Exception:
+                pass
+        for pid in backup.get("suspended_pids", []):
+            try:
+                resume_process(pid)
+            except Exception:
+                pass
 
     @pyqtSlot()
     def _on_optimizer_restore(self):
@@ -800,6 +916,14 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(int)
     def _on_process_suspend(self, pid: int):
+        reply = QMessageBox.question(
+            self, "Confirm Suspend",
+            f"Suspend process PID {pid}? It will freeze until resumed.",
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if reply != QMessageBox.Yes:
+            return
         try:
             from core.background_killer import BackgroundKiller
             if self._background_killer is None:
@@ -947,6 +1071,7 @@ class MainWindow(QMainWindow):
             proc_interval = settings.get("proc_poll_interval_ms", 1500)
             self.process_watcher.set_poll_interval(proc_interval)
         self._auto_game_mode = settings.get("auto_game_mode", False)
+        self._adaptive_engine.enabled = settings.get("adaptive_mode", False)
 
     @pyqtSlot(list)
     def _on_game_list_changed(self, game_list: list):
@@ -1050,7 +1175,7 @@ class MainWindow(QMainWindow):
 
     @pyqtSlot(str)
     def _on_disable_setting(self, key: str) -> None:
-        """Quick-disable a setting from the DiagnosticPanel [Disable] button."""
+        """Quick-disable a setting: uncheck UI, restore that tab, re-apply without the key."""
         from core.settings_risk import get_risk
         risk = get_risk(key)
         tab_name = risk.get("tab") if risk else None
@@ -1060,13 +1185,49 @@ class MainWindow(QMainWindow):
             "optimizer": self.tab_optimizer,
         }
         tab = tab_map.get(tab_name)
-        if tab:
-            tab.set_settings({key: False})
-            self._applied_settings.get(tab_name, {}).pop(key, None)
-            self.tab_monitor.update_applied_settings(self._applied_settings)
-        self._toast.show_message(
-            f"'{key}' unchecked — click Apply in its tab to take effect.", "info"
-        )
+        if not tab:
+            return
+
+        # Uncheck the toggle in the UI
+        tab.set_settings({key: False})
+
+        # Get the current applied settings for this tab, remove the key
+        current_applied = self._applied_settings.get(tab_name, {})
+        if not current_applied:
+            self._toast.show_message(f"'{risk.get('display', key)}' unchecked.", "info")
+            return
+
+        # Restore this tab's settings, then re-apply with the key disabled
+        restore_map = {
+            "wifi": self._on_wifi_restore,
+            "fps": self._on_fps_restore,
+            "optimizer": self._on_optimizer_restore,
+        }
+        apply_map = {
+            "wifi": lambda s: self._apply_wifi(s),
+            "fps": lambda s: self._apply_fps(s),
+            "optimizer": lambda s: self._apply_optimizer(s),
+        }
+        try:
+            # Restore current tab settings
+            restore_fn = restore_map.get(tab_name)
+            if restore_fn:
+                restore_fn()
+
+            # Re-apply with the problematic key disabled
+            new_settings = dict(current_applied)
+            new_settings[key] = False
+            apply_fn = apply_map.get(tab_name)
+            if apply_fn:
+                apply_fn(new_settings)
+                self._applied_settings[tab_name] = new_settings
+                self.tab_monitor.update_applied_settings(self._applied_settings)
+
+            display = risk.get("display", key)
+            self._toast.show_message(f"'{display}' disabled and settings re-applied.", "success")
+        except Exception as e:
+            logger.error(f"Quick-disable of '{key}' failed: {e}")
+            self._toast.show_message(f"Could not disable '{key}': {e}", "error")
 
     # ------------------------------------------------------------------ Misc
 

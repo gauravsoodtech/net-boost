@@ -10,10 +10,10 @@ from PyQt5.QtCore import (
 from PyQt5.QtGui import QPainter, QColor, QBrush, QPen
 
 
-_COLOR_TRACK_OFF  = QColor("#3a3a5a")
-_COLOR_TRACK_ON   = QColor("#4fc3f7")
-_COLOR_THUMB      = QColor("#ffffff")
-_COLOR_THUMB_SHADOW = QColor(0, 0, 0, 60)
+_COLOR_TRACK_OFF  = QColor("#232332")
+_COLOR_TRACK_ON   = QColor("#00E5FF")
+_COLOR_THUMB      = QColor("#F3F4F6")
+_COLOR_THUMB_SHADOW = QColor(0, 0, 0, 80)
 
 _ANIM_DURATION_MS = 200  # milliseconds
 
@@ -32,6 +32,7 @@ class ToggleSwitch(QAbstractButton):
         self.setCheckable(True)
         self.setCursor(Qt.PointingHandCursor)
         self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.setFocusPolicy(Qt.StrongFocus)
 
         # Internal animated position (0.0 → off, 1.0 → on)
         self._thumb_pos: float = 0.0
@@ -70,6 +71,13 @@ class ToggleSwitch(QAbstractButton):
 
     def sizeHint(self) -> QSize:
         return QSize(50, 26)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if event.key() in (Qt.Key_Space, Qt.Key_Return, Qt.Key_Enter):
+            self.toggle()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
     def mouseReleaseEvent(self, event) -> None:  # noqa: N802
         super().mouseReleaseEvent(event)
@@ -116,5 +124,11 @@ class ToggleSwitch(QAbstractButton):
         painter.setBrush(QBrush(_COLOR_THUMB))
         painter.setPen(QPen(QColor(200, 200, 200, 80), 0.5))
         painter.drawEllipse(thumb_x, thumb_y, thumb_diameter, thumb_diameter)
+
+        # Focus ring (keyboard navigation)
+        if self.hasFocus():
+            painter.setBrush(Qt.NoBrush)
+            painter.setPen(QPen(QColor("#4fc3f7"), 2))
+            painter.drawRoundedRect(0, 0, w, h, radius + 2, radius + 2)
 
         painter.end()

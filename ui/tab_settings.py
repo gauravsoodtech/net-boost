@@ -93,8 +93,14 @@ class TabSettings(QWidget):
         self._chk_start_windows = QCheckBox("Start with Windows")
         self._chk_start_tray    = QCheckBox("Start minimized to tray")
         self._chk_auto_game     = QCheckBox("Auto-enable Game Mode on game detect")
+        self._chk_adaptive      = QCheckBox("Adaptive Mode — auto-adjust settings based on network conditions")
+        self._chk_adaptive.setToolTip(
+            "When enabled, NetBoost monitors ping/loss in real-time and\n"
+            "automatically adjusts DNS, LSO, and background services\n"
+            "when network conditions degrade during gaming."
+        )
 
-        for chk in (self._chk_start_windows, self._chk_start_tray, self._chk_auto_game):
+        for chk in (self._chk_start_windows, self._chk_start_tray, self._chk_auto_game, self._chk_adaptive):
             chk.stateChanged.connect(self._on_settings_changed)
             startup_layout.addWidget(chk)
 
@@ -224,6 +230,7 @@ class TabSettings(QWidget):
             "start_with_windows":    self._chk_start_windows.isChecked(),
             "start_minimized":       self._chk_start_tray.isChecked(),
             "auto_game_mode":        self._chk_auto_game.isChecked(),
+            "adaptive_mode":         self._chk_adaptive.isChecked(),
             "ping_interval_ms":      self._spin_ping_interval.value(),
             "proc_poll_interval_ms": self._spin_proc_interval.value(),
         }
@@ -245,6 +252,7 @@ class TabSettings(QWidget):
         _set_chk(self._chk_start_windows, "start_with_windows")
         _set_chk(self._chk_start_tray,    "start_minimized")
         _set_chk(self._chk_auto_game,     "auto_game_mode")
+        _set_chk(self._chk_adaptive,      "adaptive_mode")
         _set_spin(self._spin_ping_interval, "ping_interval_ms")
         _set_spin(self._spin_proc_interval, "proc_poll_interval_ms")
 

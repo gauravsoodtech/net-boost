@@ -18,10 +18,10 @@ class StatusToast(QWidget):
     """
 
     _STYLES = {
-        "success": ("#0a2e10", "#4caf50", "\u2713"),
-        "error":   ("#2e0a0a", "#f44336", "\u2717"),
-        "info":    ("#0a1a2e", "#4fc3f7", "\u2139"),
-        "warning": ("#2e1a00", "#ff9800", "\u26a0"),
+        "success": ("#052E10", "#10B981", "\u2713"),
+        "error":   ("#2E0505", "#EF4444", "\u2717"),
+        "info":    ("#05162E", "#00E5FF", "\u2139"),
+        "warning": ("#2E1600", "#F59E0B", "\u26a0"),
     }
 
     def __init__(self, parent=None):
@@ -66,7 +66,7 @@ class StatusToast(QWidget):
         bg, fg, icon = self._STYLES.get(kind, self._STYLES["info"])
 
         self.setStyleSheet(
-            f"QWidget {{ background-color:{bg}; border:1px solid {fg}; border-radius:8px; }}"
+            f"QWidget {{ background-color:{bg}; border:1px solid {fg}; border-radius:12px; }}"
         )
         self._icon_lbl.setStyleSheet(
             f"color:{fg}; font-size:14px; font-weight:700; background:transparent; border:none;"

@@ -10,54 +10,7 @@ from PyQt5.QtWidgets import (
 )
 from PyQt5.QtCore import Qt, QTimer, pyqtSignal
 
-from .widgets.toggle_switch import ToggleSwitch
-
-
-# ── Helper: a labelled toggle row ────────────────────────────────────────────
-
-class _ToggleRow(QWidget):
-    """One row: [ToggleSwitch] [Label] [optional badge]"""
-
-    def __init__(self, key: str, label: str, badge: str = "", tooltip: str = "", parent=None):
-        super().__init__(parent)
-        self.key = key
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(4, 4, 4, 4)
-        layout.setSpacing(10)
-
-        self.switch = ToggleSwitch()
-        layout.addWidget(self.switch)
-
-        lbl = QLabel(label)
-        lbl.setStyleSheet("background: transparent; border: none; color: #e0e0e0;")
-        if tooltip:
-            lbl.setToolTip(tooltip)
-        layout.addWidget(lbl)
-
-        if badge:
-            badge_lbl = QLabel(badge)
-            badge_lbl.setStyleSheet(
-                "background-color: #3a0a0a; color: #f44336;"
-                " border: 1px solid #f44336; border-radius: 3px;"
-                " font-size: 10px; font-weight: 700; padding: 1px 5px;"
-            )
-            layout.addWidget(badge_lbl)
-
-        layout.addStretch()
-
-        self._status_badge = QLabel("● Active")
-        self._status_badge.setStyleSheet(
-            "color: #4caf50; font-size: 10px; font-weight: 700;"
-            " background: transparent; border: none;"
-        )
-        self._status_badge.setVisible(False)
-        layout.addWidget(self._status_badge)
-
-        self.setStyleSheet("background: transparent;")
-
-    def set_applied(self, applied: bool) -> None:
-        self._status_badge.setVisible(applied)
+from .widgets.toggle_row import ToggleRow as _ToggleRow
 
 
 # ── Wi-Fi Tab ─────────────────────────────────────────────────────────────────

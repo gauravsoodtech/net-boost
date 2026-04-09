@@ -191,7 +191,17 @@ class TabDashboard(QWidget):
             self._badge_jitter.set_value("--")
         else:
             self._badge_ping.set_value(ping)
-            self._badge_jitter.set_value(jitter if jitter is not None else 0.0)
+            jitter_val = jitter if jitter is not None else 0.0
+            self._badge_jitter.set_value(jitter_val)
+            # Colour-code jitter badge
+            if jitter_val < 5:
+                self._badge_jitter.set_color("#4caf50")   # green
+            elif jitter_val < 15:
+                self._badge_jitter.set_color("#ffeb3b")   # yellow
+            elif jitter_val < 30:
+                self._badge_jitter.set_color("#ff9800")   # orange
+            else:
+                self._badge_jitter.set_color("#f44336")   # red
             if ping < 30:
                 self._badge_ping.set_color("#4caf50")
             elif ping < 80:
