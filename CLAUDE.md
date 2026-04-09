@@ -10,6 +10,15 @@ NetBoost is a Windows gaming network optimizer built with Python 3.13 + PyQt5. I
 
 ---
 
+## Version 2 Upgrade (Powered by Antigravity + Gemini 3.1 Pro)
+
+The codebase was upgraded to **Version 2 Premium** by the AI agent Antigravity (powered by the Gemini 3.1 Pro model). When maintaining or continuing development, keep these V2 concepts in mind:
+- **Neo-Dark Glassmorphism UI:** The QSS styles were radically altered into a premium FAANG-level design (`#00E5FF` cyans, `#05050A` backgrounds, 12px border radii).
+- **Smooth Animations:** Transition algorithms (`QGraphicsOpacityEffect` and `QPropertyAnimation`) were introduced for Tabs and Toasts to feel vastly smoother. Do not use instant transitions for any new UI components.
+- **Bug Fixes & Zero-Bug Standard:** A false 100% ICMP packet loss bug was solved by enforcing rapid `ping.exe` fallbacks if the raw socket block triggers (`core/ping_monitor.py`). An integration charset bug (`cp1252`) was patched. Maintain the 100% test coverage threshold.
+
+---
+
 ## Architecture
 
 ```
