@@ -1,26 +1,56 @@
 """
-adaptive_engine.py -- Real-time adaptive network optimization for NetBoost V2.
+adaptive_engine.py -- Recommendation engine for NetBoost Adaptive Advisor.
 
-Monitors ping/jitter/loss readings and automatically adjusts settings when
-network conditions degrade.  Each rule evaluates a sliding window of
-readings, fires an action when its threshold is breached, and auto-reverts
-when conditions stabilise.
-
-Thread-safety: ``on_reading`` is called from the PingMonitor signal on the
-main thread (Qt signal delivery).  Rule evaluation is synchronous — keep
-rules lightweight.
+Monitors ping/jitter/loss readings and recommends targeted fixes when network
+conditions degrade. Rules do not directly mutate Windows settings; MainWindow
+routes accepted recommendations through the same explicit apply/restore paths
+used by the normal UI.
 """
 
+from __future__ import annotations
+
+from collections import deque
+from dataclasses import dataclass, field
 import logging
 import time
-from collections import deque
-from typing import Any, Callable
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
-# ---------------------------------------------------------------------------
-# Reading data-class
-# ---------------------------------------------------------------------------
+
+_DNS_DISPLAY_NAMES = {
+    "opendns": "OpenDNS 208.67.222.222",
+    "cloudflare": "Cloudflare 1.1.1.1",
+    "google": "Google 8.8.8.8",
+    "quad9": "Quad9 9.9.9.9",
+}
+
+
+@dataclass
+class AdaptiveRecommendation:
+    """A user-approved action suggested by Adaptive Advisor."""
+
+    id: str
+    rule_name: str
+    severity: str
+    title: str
+    message: str
+    target: str
+    settings_patch: dict
+    created_at: float = field(default_factory=time.time)
+
+    def to_dict(self) -> dict:
+        return {
+            "id": self.id,
+            "rule_name": self.rule_name,
+            "severity": self.severity,
+            "title": self.title,
+            "message": self.message,
+            "target": self.target,
+            "settings_patch": dict(self.settings_patch),
+            "created_at": self.created_at,
+        }
+
 
 class PingReading:
     __slots__ = ("timestamp", "latency_ms", "timed_out")
@@ -31,19 +61,12 @@ class PingReading:
         self.timed_out = timed_out
 
 
-# ---------------------------------------------------------------------------
-# Abstract rule
-# ---------------------------------------------------------------------------
-
 class AdaptiveRule:
     """
-    Base class for adaptive optimisation rules.
+    Base class for adaptive recommendation rules.
 
-    Subclasses must implement:
-    - ``should_activate(buffer)``  — return True when the rule should fire
-    - ``should_deactivate(buffer)`` — return True when conditions recovered
-    - ``activate()``  — apply the corrective action
-    - ``deactivate()`` — revert the corrective action
+    ``active`` means a recommendation is currently pending or the triggering
+    condition has not recovered. It does not mean a Windows setting was applied.
     """
 
     def __init__(self, name: str, cooldown_s: float = 60.0, recovery_s: float = 120.0):
@@ -53,15 +76,10 @@ class AdaptiveRule:
         self.active = False
         self._last_fired: float = 0.0
         self._recovery_start: float | None = None
-        self._backup: Any = None
+        self._last_recommendation_id: str | None = None
 
-    def evaluate(self, buffer: deque[PingReading]) -> str | None:
-        """
-        Evaluate the rule against the current buffer.
-
-        Returns a human-readable message if the rule triggered an action,
-        or None if no action was taken.
-        """
+    def evaluate(self, buffer: deque[PingReading]) -> AdaptiveRecommendation | None:
+        """Evaluate the rule and return a recommendation when approval is needed."""
         now = time.monotonic()
 
         if self.active:
@@ -69,65 +87,50 @@ class AdaptiveRule:
                 if self._recovery_start is None:
                     self._recovery_start = now
                 elif now - self._recovery_start >= self.recovery_s:
-                    self._do_deactivate()
-                    return f"[Auto] {self.name}: conditions recovered — reverted"
+                    self.clear_pending(self._last_recommendation_id)
             else:
                 self._recovery_start = None
             return None
 
-        # Not active — check if we should fire.
         if now - self._last_fired < self.cooldown_s:
             return None
 
         if self.should_activate(buffer):
-            self._do_activate()
-            return f"[Auto] {self.name}: activated"
+            return self._do_activate()
 
         return None
 
-    def _do_activate(self):
+    def _do_activate(self) -> AdaptiveRecommendation | None:
         try:
-            self._backup = self.activate()
+            recommendation = self.build_recommendation()
             self.active = True
             self._last_fired = time.monotonic()
             self._recovery_start = None
-            logger.info("Adaptive rule '%s' activated.", self.name)
+            self._last_recommendation_id = recommendation.id
+            logger.info("Adaptive rule '%s' recommended '%s'.", self.name, recommendation.title)
+            return recommendation
         except Exception as exc:
-            logger.error("Adaptive rule '%s' activation failed: %s", self.name, exc)
+            logger.error("Adaptive rule '%s' recommendation failed: %s", self.name, exc)
+            return None
 
-    def _do_deactivate(self):
-        try:
-            self.deactivate(self._backup)
+    def clear_pending(self, recommendation_id: str | None = None) -> None:
+        if recommendation_id is None or recommendation_id == self._last_recommendation_id:
             self.active = False
-            self._backup = None
             self._recovery_start = None
-            logger.info("Adaptive rule '%s' deactivated (conditions recovered).", self.name)
-        except Exception as exc:
-            logger.error("Adaptive rule '%s' deactivation failed: %s", self.name, exc)
+            self._last_recommendation_id = None
 
-    # -- subclass hooks --
     def should_activate(self, buffer: deque[PingReading]) -> bool:
         raise NotImplementedError
 
     def should_deactivate(self, buffer: deque[PingReading]) -> bool:
         raise NotImplementedError
 
-    def activate(self) -> Any:
+    def build_recommendation(self) -> AdaptiveRecommendation:
         raise NotImplementedError
 
-    def deactivate(self, backup: Any) -> None:
-        raise NotImplementedError
-
-
-# ---------------------------------------------------------------------------
-# Concrete rules
-# ---------------------------------------------------------------------------
 
 class DnsFailoverRule(AdaptiveRule):
-    """
-    Cycle to the next DNS provider when packet loss exceeds threshold
-    for a sustained period.
-    """
+    """Recommend cycling DNS providers when packet loss is sustained."""
 
     PROVIDERS_CYCLE = ["opendns", "cloudflare", "google", "quad9"]
 
@@ -144,7 +147,6 @@ class DnsFailoverRule(AdaptiveRule):
         self._loss_threshold = loss_threshold
         self._window_s = window_s
         self._current_index = 0
-        self._original_backup: dict | None = None
 
     def should_activate(self, buffer: deque[PingReading]) -> bool:
         return self._window_loss(buffer) > self._loss_threshold
@@ -152,23 +154,25 @@ class DnsFailoverRule(AdaptiveRule):
     def should_deactivate(self, buffer: deque[PingReading]) -> bool:
         return self._window_loss(buffer) < self._loss_threshold / 2
 
-    def activate(self) -> dict:
-        dns = self._dns_factory()
-        adapter = dns.get_active_adapter()
-        backup = {"adapter": adapter, "original_dns": dns.get_current_dns(adapter)}
-
-        # Cycle to next provider.
+    def build_recommendation(self) -> AdaptiveRecommendation:
         self._current_index = (self._current_index + 1) % len(self.PROVIDERS_CYCLE)
         provider = self.PROVIDERS_CYCLE[self._current_index]
-        dns.apply(provider, adapter=adapter)
-        logger.info("DNS failover: switched to '%s'.", provider)
-        return backup
-
-    def deactivate(self, backup: dict) -> None:
-        if backup:
-            dns = self._dns_factory()
-            dns.restore(backup)
-            logger.info("DNS failover: restored original DNS.")
+        display = _DNS_DISPLAY_NAMES[provider]
+        return AdaptiveRecommendation(
+            id=f"dns-failover:{provider}",
+            rule_name=self.name,
+            severity="MEDIUM",
+            title=f"Switch DNS to {display}",
+            message=(
+                "Packet loss stayed high. Try switching DNS providers; NetBoost "
+                "will apply it through the normal optimizer path if you approve."
+            ),
+            target="optimizer",
+            settings_patch={
+                "switch_dns": True,
+                "dns_provider": display,
+            },
+        )
 
     def _window_loss(self, buffer: deque[PingReading]) -> float:
         now = time.monotonic()
@@ -180,10 +184,7 @@ class DnsFailoverRule(AdaptiveRule):
 
 
 class PingSpikeRule(AdaptiveRule):
-    """
-    Enable LSO disable (the most impactful Wi-Fi tweak) when repeated
-    ping spikes are detected — even if the user didn't toggle it on.
-    """
+    """Recommend Wi-Fi packet batching changes when repeated spikes occur."""
 
     def __init__(
         self,
@@ -193,7 +194,7 @@ class PingSpikeRule(AdaptiveRule):
         spike_count: int = 3,
         window_s: float = 60.0,
     ):
-        super().__init__("Ping Spike → LSO Disable", cooldown_s=120.0, recovery_s=180.0)
+        super().__init__("Ping Spike -> LSO Disable", cooldown_s=120.0, recovery_s=180.0)
         self._wifi_factory = wifi_optimizer_factory
         self._state_guard = state_guard
         self._spike_ms = spike_ms
@@ -218,27 +219,26 @@ class PingSpikeRule(AdaptiveRule):
         spikes = sum(1 for r in recent if r.latency_ms >= self._spike_ms)
         return spikes == 0
 
-    def activate(self) -> dict:
-        from core.wifi_optimizer import WifiOptimizer
-        wifi = self._wifi_factory()
-        backup = wifi.apply({"disable_lso": True, "disable_interrupt_mod": True})
-        if self._state_guard:
-            self._state_guard.record_wifi_backup(backup)
-        logger.info("Ping spike rule: LSO + interrupt moderation disabled.")
-        return backup
-
-    def deactivate(self, backup: dict) -> None:
-        if backup:
-            from core.wifi_optimizer import WifiOptimizer
-            wifi = self._wifi_factory()
-            wifi.restore(backup)
-            logger.info("Ping spike rule: LSO settings reverted.")
+    def build_recommendation(self) -> AdaptiveRecommendation:
+        return AdaptiveRecommendation(
+            id="ping-spike-lso:wifi",
+            rule_name=self.name,
+            severity="HIGH",
+            title="Disable LSO and interrupt moderation",
+            message=(
+                "Repeated ping spikes were detected. Disabling NIC packet batching "
+                "and interrupt moderation is the safest targeted Wi-Fi fix to try."
+            ),
+            target="wifi",
+            settings_patch={
+                "disable_lso": True,
+                "disable_interrupt_mod": True,
+            },
+        )
 
 
 class BackgroundEscalationRule(AdaptiveRule):
-    """
-    Pause additional background services when packet loss spikes during gaming.
-    """
+    """Recommend pausing background services when packet loss spikes."""
 
     def __init__(
         self,
@@ -270,58 +270,34 @@ class BackgroundEscalationRule(AdaptiveRule):
         timeouts = sum(1 for r in recent if r.timed_out)
         return (timeouts / len(recent)) * 100.0 < 2.0
 
-    def activate(self) -> dict:
-        bk = self._bg_factory()
-        settings = {
-            "pause_windows_update": True,
-            "pause_bits": True,
-            "pause_telemetry": True,
-        }
-        backup = bk.apply(settings)
-        if self._state_guard:
-            for svc in backup.get("services_backup", []):
-                self._state_guard.add_paused_service(svc["name"])
-        logger.info("Background escalation: paused additional services.")
-        return backup
+    def build_recommendation(self) -> AdaptiveRecommendation:
+        return AdaptiveRecommendation(
+            id="background-escalation:optimizer",
+            rule_name=self.name,
+            severity="MEDIUM",
+            title="Pause background network services",
+            message=(
+                "Packet loss rose while monitoring. Pausing Windows Update, BITS, "
+                "and telemetry can reduce background network contention."
+            ),
+            target="optimizer",
+            settings_patch={
+                "pause_windows_update": True,
+                "pause_bits": True,
+                "pause_telemetry": True,
+            },
+        )
 
-    def deactivate(self, backup: dict) -> None:
-        if backup:
-            from core.background_killer import resume_service, resume_process
-            for svc in backup.get("services_backup", []):
-                try:
-                    resume_service(svc["name"])
-                except Exception:
-                    pass
-            for pid in backup.get("suspended_pids", []):
-                try:
-                    resume_process(pid)
-                except Exception:
-                    pass
-            logger.info("Background escalation: services resumed.")
-
-
-# ---------------------------------------------------------------------------
-# Engine
-# ---------------------------------------------------------------------------
 
 class AdaptiveEngine:
-    """
-    Coordinates adaptive rules based on PingMonitor readings.
-
-    Usage::
-
-        engine = AdaptiveEngine()
-        engine.add_rule(DnsFailoverRule(...))
-        engine.add_rule(PingSpikeRule(...))
-        # Call from PingMonitor signal:
-        engine.on_reading(host, latency_ms, timed_out)
-    """
+    """Coordinates adaptive recommendation rules based on PingMonitor readings."""
 
     def __init__(self, buffer_size: int = 240):
         self._buffer: deque[PingReading] = deque(maxlen=buffer_size)
         self._rules: list[AdaptiveRule] = []
         self._enabled = False
-        self._action_callback: Callable[[str], None] | None = None
+        self._recommendation_callback: Callable[[AdaptiveRecommendation], None] | None = None
+        self._pending_ids: set[str] = set()
 
     @property
     def enabled(self) -> bool:
@@ -336,9 +312,13 @@ class AdaptiveEngine:
     def add_rule(self, rule: AdaptiveRule) -> None:
         self._rules.append(rule)
 
-    def set_action_callback(self, callback: Callable[[str], None]) -> None:
-        """Set a callback that receives human-readable action messages."""
-        self._action_callback = callback
+    def set_recommendation_callback(self, callback: Callable[[AdaptiveRecommendation], None]) -> None:
+        """Set a callback that receives recommendation objects."""
+        self._recommendation_callback = callback
+
+    def set_action_callback(self, callback: Callable[[AdaptiveRecommendation], None]) -> None:
+        """Backward-compatible alias for older wiring."""
+        self.set_recommendation_callback(callback)
 
     def on_reading(self, host: str, latency_ms: float, timed_out: bool) -> None:
         """Called on every ping reading. Evaluates all rules."""
@@ -349,18 +329,30 @@ class AdaptiveEngine:
 
         for rule in self._rules:
             try:
-                msg = rule.evaluate(self._buffer)
-                if msg and self._action_callback:
-                    self._action_callback(msg)
+                recommendation = rule.evaluate(self._buffer)
+                if (
+                    recommendation
+                    and recommendation.id not in self._pending_ids
+                    and self._recommendation_callback
+                ):
+                    self._pending_ids.add(recommendation.id)
+                    self._recommendation_callback(recommendation)
             except Exception as exc:
                 logger.error("Adaptive rule '%s' error: %s", rule.name, exc)
 
     def deactivate_all(self) -> None:
-        """Revert all active rules."""
+        """Clear all pending recommendations."""
+        self._pending_ids.clear()
         for rule in self._rules:
             if rule.active:
-                rule._do_deactivate()
+                rule.clear_pending()
 
     def get_active_rules(self) -> list[str]:
         """Return names of currently active rules."""
         return [r.name for r in self._rules if r.active]
+
+    def mark_recommendation_handled(self, recommendation_id: str) -> None:
+        """Allow a handled/dismissed recommendation to be emitted again after cooldown."""
+        self._pending_ids.discard(recommendation_id)
+        for rule in self._rules:
+            rule.clear_pending(recommendation_id)

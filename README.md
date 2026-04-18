@@ -1,10 +1,10 @@
 <div align="center">
 
-# ⚡ NetBoost V2 Premium
+# NetBoost V2.1 Premium
 
 ### Advanced Gaming Network Optimizer for Windows
 
-**Eliminate ping spikes · Maximize FPS · Auto-tune your system for competitive gaming**
+**Eliminate ping spikes · Maximize FPS · Tune your system safely for competitive gaming**
 
 [![Python](https://img.shields.io/badge/Python-3.13-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
 [![PyQt5](https://img.shields.io/badge/PyQt5-5.15.11-41CD52?style=for-the-badge&logo=qt&logoColor=white)](https://pypi.org/project/PyQt5/)
@@ -12,7 +12,7 @@
 [![License](https://img.shields.io/badge/License-MIT-yellow?style=for-the-badge)](LICENSE)
 [![Built with Claude](https://img.shields.io/badge/Built%20with-Claude%20AI-D97706?style=for-the-badge&logo=anthropic&logoColor=white)](https://claude.ai)
 
-> **Version 2 Released!** Features a brand-new Neo-Dark Glassmorphic UI with animated tab transitions, enhanced toggle switches, reinforced raw-socket fallback validation (fixes false 100% loss bug), and 100% automated integration test coverage.
+> **Version 2.1 Released!** Adds Adaptive Advisor: NetBoost detects loss, jitter, ping spikes, and background contention, then queues user-approved recommendations instead of silently changing system settings.
 
 ![NetBoost Dashboard](https://i.imgur.com/placeholder.png)
 
@@ -99,6 +99,17 @@ NetBoost actively watches for signs that your applied settings are causing probl
 | **Health Diagnostics panel** | Monitor tab shows every active setting with a color-coded risk badge (🟢/🟡/🔴) and a live alert log |
 | **Quick-disable** | Alert rows include a `[Disable <setting>]` button — one click unchecks the culprit without leaving the Monitor tab |
 | **LSO apply failure** | If the Intel Wi-Fi adapter key can't be found, a warning toast fires instead of silently showing ✓ Applied |
+
+### Adaptive Advisor
+Adaptive Advisor turns live network telemetry into safe, reviewable recommendations:
+
+| Signal | Recommendation |
+|--------|----------------|
+| Sustained packet loss | Try a DNS provider switch through the normal Optimizer path |
+| Repeated ping spikes | Disable LSO and interrupt moderation on the Wi-Fi adapter |
+| Background contention | Pause Windows Update, BITS, and telemetry services |
+
+Recommendations appear in the Monitor tab with **Apply** and **Dismiss** actions. Nothing is changed until you approve it.
 
 ### 🛡️ Crash-Safe
 All changes tracked in an atomic state file. If NetBoost crashes mid-session, it **automatically restores your original settings** on next launch.

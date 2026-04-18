@@ -55,3 +55,4 @@ htmlcov/
 .superpowers/
 .worktrees
 .worktrees/
+.uv-cache/

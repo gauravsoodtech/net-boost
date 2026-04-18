@@ -14,6 +14,7 @@ from collections import deque
 
 from core.adaptive_engine import (
     AdaptiveEngine,
+    AdaptiveRecommendation,
     AdaptiveRule,
     BackgroundEscalationRule,
     DnsFailoverRule,
@@ -73,7 +74,7 @@ class TestAdaptiveEngineCore:
 
         rule.evaluate.assert_called_once()
 
-    def test_deactivate_all_reverts_active_rules(self):
+    def test_deactivate_all_clears_active_rules(self):
         engine = AdaptiveEngine()
         rule = MagicMock(spec=AdaptiveRule)
         rule.active = True
@@ -81,7 +82,7 @@ class TestAdaptiveEngineCore:
 
         engine.deactivate_all()
 
-        rule._do_deactivate.assert_called_once()
+        rule.clear_pending.assert_called_once()
 
     def test_get_active_rules_returns_correct_names(self):
         engine = AdaptiveEngine()
@@ -96,20 +97,57 @@ class TestAdaptiveEngineCore:
 
         assert engine.get_active_rules() == ["Rule A"]
 
-    def test_action_callback_receives_message(self):
+    def test_recommendation_callback_receives_recommendation(self):
         engine = AdaptiveEngine()
         callback = MagicMock()
-        engine.set_action_callback(callback)
+        engine.set_recommendation_callback(callback)
 
         rule = MagicMock(spec=AdaptiveRule)
         rule.active = False
-        rule.evaluate.return_value = "[Auto] test fired"
+        rule.name = "Test Rule"
+        rec = AdaptiveRecommendation(
+            id="test-rule:optimizer",
+            rule_name="Test Rule",
+            severity="MEDIUM",
+            title="Test recommendation",
+            message="Try this safer fix.",
+            target="optimizer",
+            settings_patch={"pause_bits": True},
+        )
+        rule.evaluate.return_value = rec
         engine.add_rule(rule)
         engine.enabled = True
 
         engine.on_reading("1.1.1.1", 10.0, False)
 
-        callback.assert_called_once_with("[Auto] test fired")
+        callback.assert_called_once_with(rec)
+
+    def test_disabled_engine_clears_pending_recommendations(self):
+        engine = AdaptiveEngine()
+        callback = MagicMock()
+        engine.set_recommendation_callback(callback)
+        rec = AdaptiveRecommendation(
+            id="test-rule:wifi",
+            rule_name="Test Rule",
+            severity="HIGH",
+            title="Wi-Fi recommendation",
+            message="Disable packet batching.",
+            target="wifi",
+            settings_patch={"disable_lso": True},
+        )
+        rule = MagicMock(spec=AdaptiveRule)
+        rule.active = False
+        rule.name = "Test Rule"
+        rule.evaluate.return_value = rec
+        engine.add_rule(rule)
+
+        engine.enabled = True
+        engine.on_reading("1.1.1.1", 80.0, False)
+        engine.enabled = False
+        engine.enabled = True
+        engine.on_reading("1.1.1.1", 85.0, False)
+
+        assert callback.call_count == 2
 
 
 class TestDnsFailoverRule:
@@ -156,6 +194,22 @@ class TestDnsFailoverRule:
         buf = _make_readings([5.0] * 10, [False] * 10, window_s=10)
         assert rule.should_deactivate(buf) is True
 
+    def test_recommendation_does_not_touch_dns_until_user_applies(self):
+        rule, factory, dns_mock = self._make_rule()
+        timeouts = [True] * 6 + [False] * 4
+        buf = _make_readings([0.0] * 10, timeouts, window_s=10)
+
+        rec = rule.evaluate(buf)
+
+        assert isinstance(rec, AdaptiveRecommendation)
+        assert rec.target == "optimizer"
+        assert rec.settings_patch == {
+            "switch_dns": True,
+            "dns_provider": "Cloudflare 1.1.1.1",
+        }
+        factory.assert_not_called()
+        dns_mock.apply.assert_not_called()
+
 
 class TestPingSpikeRule:
 
@@ -191,6 +245,22 @@ class TestPingSpikeRule:
         buf = _make_readings(latencies, window_s=30)
         assert rule.should_deactivate(buf) is False
 
+    def test_recommendation_contains_wifi_patch_without_applying(self):
+        rule, factory, wifi_mock = self._make_rule()
+        latencies = [10.0, 60.0, 70.0, 5.0, 80.0]
+        buf = _make_readings(latencies, window_s=30)
+
+        rec = rule.evaluate(buf)
+
+        assert isinstance(rec, AdaptiveRecommendation)
+        assert rec.target == "wifi"
+        assert rec.settings_patch == {
+            "disable_lso": True,
+            "disable_interrupt_mod": True,
+        }
+        factory.assert_not_called()
+        wifi_mock.apply.assert_not_called()
+
 
 class TestBackgroundEscalationRule:
 
@@ -219,6 +289,24 @@ class TestBackgroundEscalationRule:
         assert rule.should_deactivate(buf) is True
 
 
+    def test_recommendation_contains_service_patch_without_applying(self):
+        rule, factory, bk_mock = self._make_rule()
+        timeouts = [True] * 3 + [False] * 7
+        buf = _make_readings([0.0] * 10, timeouts, window_s=10)
+
+        rec = rule.evaluate(buf)
+
+        assert isinstance(rec, AdaptiveRecommendation)
+        assert rec.target == "optimizer"
+        assert rec.settings_patch == {
+            "pause_windows_update": True,
+            "pause_bits": True,
+            "pause_telemetry": True,
+        }
+        factory.assert_not_called()
+        bk_mock.apply.assert_not_called()
+
+
 class TestRuleRecoveryFlow:
 
     def test_deactivation_requires_sustained_recovery(self):
@@ -234,10 +322,16 @@ class TestRuleRecoveryFlow:
                 return self._should_act
             def should_deactivate(self, buf):
                 return self._should_deact
-            def activate(self):
-                return "backup"
-            def deactivate(self, backup):
-                pass
+            def build_recommendation(self):
+                return AdaptiveRecommendation(
+                    id="simple:test",
+                    rule_name=self.name,
+                    severity="LOW",
+                    title="Simple recommendation",
+                    message="Simple message.",
+                    target="optimizer",
+                    settings_patch={},
+                )
 
         r = SimpleRule()
         buf = deque()
@@ -246,12 +340,10 @@ class TestRuleRecoveryFlow:
         r._should_act = True
         msg = r.evaluate(buf)
         assert r.active is True
-        assert "activated" in msg
+        assert isinstance(msg, AdaptiveRecommendation)
 
-        # Deactivate (recovery_s=0 so immediate)
+        # Clear pending after recovery_s=0 elapses
         r._should_deact = True
         msg = r.evaluate(buf)
-        # First call starts recovery timer
-        # Second call finishes it (recovery_s=0)
         msg = r.evaluate(buf)
         assert r.active is False

@@ -77,7 +77,7 @@ def main():
 
     app = QApplication(sys.argv)
     app.setApplicationName("NetBoost")
-    app.setApplicationVersion("1.0.0")
+    app.setApplicationVersion("2.1.0")
     app.setOrganizationName("NetBoost")
     app.setQuitOnLastWindowClosed(False)  # Keep running in system tray
 

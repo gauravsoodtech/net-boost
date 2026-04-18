@@ -28,6 +28,7 @@ class DiagnosticPanel(QFrame):
     """
 
     disable_setting_requested = pyqtSignal(str)  # key name
+    recommendation_action_requested = pyqtSignal(str, str)  # recommendation id, action
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -38,6 +39,7 @@ class DiagnosticPanel(QFrame):
         )
         self._collapsed = False
         self._applied: dict[str, dict] = {}  # flat {key: risk_entry | {}}
+        self._recommendations: list[dict] = []
 
         self._build_ui()
 
@@ -91,6 +93,38 @@ class DiagnosticPanel(QFrame):
         sep.setStyleSheet("color: #2a2a4a; background: #2a2a4a;")
         sep.setFixedHeight(1)
         body_layout.addWidget(sep)
+
+        rec_lbl = QLabel("Pending Recommendations:")
+        rec_lbl.setStyleSheet(
+            "color: #9e9e9e; font-size: 11px; font-weight: 600;"
+            " background: transparent; border: none;"
+        )
+        body_layout.addWidget(rec_lbl)
+
+        self._recommendations_scroll = QScrollArea()
+        self._recommendations_scroll.setWidgetResizable(True)
+        self._recommendations_scroll.setFrameShape(QFrame.NoFrame)
+        self._recommendations_scroll.setFixedHeight(118)
+        self._recommendations_scroll.setStyleSheet("background: transparent;")
+
+        self._recommendations_container = QWidget()
+        self._recommendations_layout = QVBoxLayout(self._recommendations_container)
+        self._recommendations_layout.setContentsMargins(0, 0, 0, 0)
+        self._recommendations_layout.setSpacing(4)
+        self._no_recommendations_lbl = QLabel("No recommendations.")
+        self._no_recommendations_lbl.setStyleSheet(
+            "color: #555; font-size: 11px; background: transparent; border: none;"
+        )
+        self._recommendations_layout.addWidget(self._no_recommendations_lbl)
+        self._recommendations_layout.addStretch()
+        self._recommendations_scroll.setWidget(self._recommendations_container)
+        body_layout.addWidget(self._recommendations_scroll)
+
+        sep2 = QFrame()
+        sep2.setFrameShape(QFrame.HLine)
+        sep2.setStyleSheet("color: #2a2a4a; background: #2a2a4a;")
+        sep2.setFixedHeight(1)
+        body_layout.addWidget(sep2)
 
         # Alerts section
         alerts_lbl = QLabel("Active Alerts:")
@@ -157,6 +191,25 @@ class DiagnosticPanel(QFrame):
         self._no_settings_lbl.hide()
         for key, entry in flat_rows:
             self._settings_layout.addWidget(self._make_setting_row(key, entry))
+
+    def update_recommendations(self, recommendations: list[dict]) -> None:
+        """Rebuild the pending recommendation rows."""
+        self._recommendations = list(recommendations)
+        while self._recommendations_layout.count():
+            item = self._recommendations_layout.takeAt(0)
+            if item.widget() and item.widget() is not self._no_recommendations_lbl:
+                item.widget().deleteLater()
+
+        if not self._recommendations:
+            self._recommendations_layout.addWidget(self._no_recommendations_lbl)
+            self._no_recommendations_lbl.show()
+            self._recommendations_layout.addStretch()
+            return
+
+        self._no_recommendations_lbl.hide()
+        for recommendation in self._recommendations:
+            self._recommendations_layout.addWidget(self._make_recommendation_row(recommendation))
+        self._recommendations_layout.addStretch()
 
     def add_alert(self, message: str, culprit_key: str = "") -> None:
         """Prepend a timestamped alert row, optionally with a [Disable] button."""
@@ -264,6 +317,69 @@ class DiagnosticPanel(QFrame):
         row_layout.addStretch()
         return row
 
+    def _make_recommendation_row(self, recommendation: dict) -> QWidget:
+        rec_id = recommendation.get("id", "")
+        severity = recommendation.get("severity", "LOW")
+        color = _LEVEL_COLORS.get(severity, "#4caf50")
+
+        row_frame = QFrame()
+        row_frame.setStyleSheet(
+            "QFrame { background-color: #151528; border: 1px solid #2a2a4a;"
+            " border-radius: 4px; }"
+        )
+        outer = QVBoxLayout(row_frame)
+        outer.setContentsMargins(8, 6, 8, 6)
+        outer.setSpacing(5)
+
+        header = QHBoxLayout()
+        header.setSpacing(8)
+
+        badge = QLabel(f" {severity} ")
+        badge.setStyleSheet(
+            f"color: {color}; font-size: 11px; font-weight: 700;"
+            " background: transparent; border: none;"
+        )
+
+        title = QLabel(recommendation.get("title", rec_id))
+        title.setWordWrap(True)
+        title.setStyleSheet(
+            "color: #e0e0e0; font-size: 12px; font-weight: 700;"
+            " background: transparent; border: none;"
+        )
+
+        header.addWidget(badge)
+        header.addWidget(title, stretch=1)
+        outer.addLayout(header)
+
+        message = QLabel(recommendation.get("message", ""))
+        message.setWordWrap(True)
+        message.setStyleSheet(
+            "color: #9e9e9e; font-size: 11px; background: transparent; border: none;"
+        )
+        outer.addWidget(message)
+
+        actions = QHBoxLayout()
+        actions.addStretch()
+
+        apply_btn = QPushButton("Apply")
+        apply_btn.setFixedHeight(24)
+        apply_btn.setObjectName("successButton")
+        apply_btn.clicked.connect(
+            lambda _checked=False, rid=rec_id: self.recommendation_action_requested.emit(rid, "apply")
+        )
+
+        dismiss_btn = QPushButton("Dismiss")
+        dismiss_btn.setFixedHeight(24)
+        dismiss_btn.clicked.connect(
+            lambda _checked=False, rid=rec_id: self.recommendation_action_requested.emit(rid, "dismiss")
+        )
+
+        actions.addWidget(apply_btn)
+        actions.addWidget(dismiss_btn)
+        outer.addLayout(actions)
+
+        return row_frame
+
 
 class TabMonitor(QWidget):
     """
@@ -277,6 +393,7 @@ class TabMonitor(QWidget):
 
     host_changed = pyqtSignal(str)
     disable_setting_requested = pyqtSignal(str)
+    recommendation_action_requested = pyqtSignal(str, str)
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -368,6 +485,7 @@ class TabMonitor(QWidget):
         # Diagnostic panel
         self._diag = DiagnosticPanel(self)
         self._diag.disable_setting_requested.connect(self.disable_setting_requested)
+        self._diag.recommendation_action_requested.connect(self.recommendation_action_requested)
         layout.addWidget(self._diag, stretch=0)
 
     @staticmethod
@@ -482,3 +600,7 @@ class TabMonitor(QWidget):
     def add_health_alert(self, message: str, culprit_key: str = "") -> None:
         """Forward a health alert to DiagnosticPanel."""
         self._diag.add_alert(message, culprit_key)
+
+    def set_recommendations(self, recommendations: list[dict]) -> None:
+        """Forward pending recommendations to DiagnosticPanel."""
+        self._diag.update_recommendations(recommendations)

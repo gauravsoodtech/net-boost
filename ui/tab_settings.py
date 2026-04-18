@@ -93,11 +93,11 @@ class TabSettings(QWidget):
         self._chk_start_windows = QCheckBox("Start with Windows")
         self._chk_start_tray    = QCheckBox("Start minimized to tray")
         self._chk_auto_game     = QCheckBox("Auto-enable Game Mode on game detect")
-        self._chk_adaptive      = QCheckBox("Adaptive Mode — auto-adjust settings based on network conditions")
+        self._chk_adaptive      = QCheckBox("Adaptive Advisor - recommend fixes based on network conditions")
         self._chk_adaptive.setToolTip(
             "When enabled, NetBoost monitors ping/loss in real-time and\n"
-            "automatically adjusts DNS, LSO, and background services\n"
-            "when network conditions degrade during gaming."
+            "queues suggested DNS, Wi-Fi, and background-service fixes\n"
+            "for you to approve from the Monitor tab."
         )
 
         for chk in (self._chk_start_windows, self._chk_start_tray, self._chk_auto_game, self._chk_adaptive):
@@ -170,7 +170,7 @@ class TabSettings(QWidget):
         about_layout = QVBoxLayout(about_group)
         about_layout.setSpacing(8)
 
-        version_lbl = QLabel("NetBoost v1.0.0")
+        version_lbl = QLabel("NetBoost v2.1.0")
         version_lbl.setStyleSheet(
             "font-size: 16px; font-weight: 700; color: #4fc3f7;"
             " background: transparent; border: none;"

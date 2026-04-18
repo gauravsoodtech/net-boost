@@ -153,6 +153,8 @@ class MainWindow(QMainWindow):
 
         # Applied-settings tracking for health diagnostics
         self._applied_settings: dict[str, dict] = {}
+        from core.adaptive_advisor import RecommendationQueue
+        self._recommendations = RecommendationQueue()
 
         # Health alert cooldown (60s between repeat alerts for the same condition)
         self._health_alert_cooldown = False
@@ -176,7 +178,7 @@ class MainWindow(QMainWindow):
         # Consecutive jitter spike counter for proactive health alerts
         self._consecutive_jitter_spikes: int = 0
 
-        # Adaptive engine (V2) — auto-adjusts settings based on network conditions
+        # Adaptive Advisor recommends fixes based on network conditions
         self._init_adaptive_engine()
 
     # ------------------------------------------------------------------ Adaptive engine
@@ -205,8 +207,7 @@ class MainWindow(QMainWindow):
             state_guard=self.state_guard,
         ))
 
-        # Actions show up in the monitor alert log
-        self._adaptive_engine.set_action_callback(self._on_adaptive_action)
+        self._adaptive_engine.set_recommendation_callback(self._on_adaptive_recommendation)
 
     def _get_dns_switcher(self):
         from core.dns_switcher import DnsSwitcher
@@ -226,12 +227,19 @@ class MainWindow(QMainWindow):
             self._background_killer = BackgroundKiller()
         return self._background_killer
 
-    def _on_adaptive_action(self, message: str):
-        """Callback from AdaptiveEngine when a rule activates/deactivates."""
-        logger.info("Adaptive: %s", message)
-        self.tab_monitor.add_alert(message)
-        style = "warning" if "activated" in message else "info"
-        self._toast.show_message(message, style)
+    def _on_adaptive_recommendation(self, recommendation):
+        """Callback from AdaptiveEngine when a rule creates a recommendation."""
+        if not self._recommendations.add(recommendation):
+            return
+        item = recommendation.to_dict()
+        logger.info(
+            "Adaptive Advisor recommendation queued: %s target=%s patch=%s",
+            item["title"],
+            item["target"],
+            item["settings_patch"],
+        )
+        self.tab_monitor.set_recommendations(self._recommendations.list())
+        self._toast.show_message(f"Advisor: {item['title']}", "warning", duration_ms=6000)
 
     # ------------------------------------------------------------------ UI setup
 
@@ -269,7 +277,7 @@ class MainWindow(QMainWindow):
         self._status_label = QLabel("Ready")
         self.status_bar.addWidget(self._status_label)
 
-        self._version_label = QLabel("NetBoost v1.0.0")
+        self._version_label = QLabel("NetBoost v2.1.0")
         self._version_label.setObjectName("dimLabel")
         self.status_bar.addPermanentWidget(self._version_label)
 
@@ -342,6 +350,7 @@ class MainWindow(QMainWindow):
         self.tab_settings.settings_changed.connect(self._on_settings_changed)
         self.tab_settings.game_list_changed.connect(self._on_game_list_changed)
         self.tab_monitor.disable_setting_requested.connect(self._on_disable_setting)
+        self.tab_monitor.recommendation_action_requested.connect(self._on_recommendation_action)
         self.tab_route.server_found.connect(self._on_game_server_found)
 
     # ------------------------------------------------------------------ Ping signals
@@ -1072,6 +1081,9 @@ class MainWindow(QMainWindow):
             self.process_watcher.set_poll_interval(proc_interval)
         self._auto_game_mode = settings.get("auto_game_mode", False)
         self._adaptive_engine.enabled = settings.get("adaptive_mode", False)
+        if not settings.get("adaptive_mode", False):
+            self._recommendations.clear()
+            self.tab_monitor.set_recommendations([])
 
     @pyqtSlot(list)
     def _on_game_list_changed(self, game_list: list):
@@ -1172,6 +1184,69 @@ class MainWindow(QMainWindow):
             self._gpu_throttle_alerted = True
         elif temp < 80:
             self._gpu_throttle_alerted = False
+
+    @pyqtSlot(str, str)
+    def _on_recommendation_action(self, recommendation_id: str, action: str) -> None:
+        """Apply or dismiss an Adaptive Advisor recommendation."""
+        recommendation = self._recommendations.get(recommendation_id)
+        if not recommendation:
+            return
+
+        if action == "dismiss":
+            self._recommendations.remove(recommendation_id)
+            self._adaptive_engine.mark_recommendation_handled(recommendation_id)
+            self.tab_monitor.set_recommendations(self._recommendations.list())
+            logger.info("Adaptive Advisor recommendation dismissed: %s", recommendation["title"])
+            self._toast.show_message("Recommendation dismissed", "info")
+            return
+
+        if action != "apply":
+            logger.warning("Unknown recommendation action '%s' for %s", action, recommendation_id)
+            return
+
+        try:
+            self._apply_recommendation(recommendation)
+        except Exception as exc:
+            logger.error("Adaptive Advisor apply failed for %s: %s", recommendation_id, exc)
+            self._toast.show_message(f"Could not apply recommendation: {exc}", "error")
+            return
+
+        self._recommendations.remove(recommendation_id)
+        self._adaptive_engine.mark_recommendation_handled(recommendation_id)
+        self.tab_monitor.set_recommendations(self._recommendations.list())
+        logger.info("Adaptive Advisor recommendation applied: %s", recommendation["title"])
+        self._toast.show_message(f"Applied: {recommendation['title']}", "success")
+
+    def _apply_recommendation(self, recommendation: dict) -> None:
+        from core.adaptive_advisor import merge_settings_patch
+
+        target = recommendation.get("target")
+        patch = recommendation.get("settings_patch") or {}
+        if target == "wifi":
+            settings = merge_settings_patch(self.tab_wifi.get_settings(), patch)
+            self._apply_wifi(settings)
+            self.tab_wifi.set_settings(settings)
+            self.tab_wifi.mark_applied(settings)
+            self.tab_wifi.show_apply_success()
+            self._applied_settings["wifi"] = settings
+        elif target == "optimizer":
+            settings = merge_settings_patch(self.tab_optimizer.get_settings(), patch)
+            self._apply_optimizer(settings)
+            self.tab_optimizer.set_settings(settings)
+            self.tab_optimizer.mark_applied(settings)
+            self.tab_optimizer.show_apply_success()
+            self._applied_settings["optimizer"] = settings
+        elif target == "fps":
+            settings = merge_settings_patch(self.tab_fps.get_settings(), patch)
+            self._apply_fps(settings)
+            self.tab_fps.set_settings(settings)
+            self.tab_fps.mark_applied(settings)
+            self.tab_fps.show_apply_success()
+            self._applied_settings["fps"] = settings
+        else:
+            raise ValueError(f"Unsupported recommendation target: {target}")
+
+        self.tab_monitor.update_applied_settings(self._applied_settings)
 
     @pyqtSlot(str)
     def _on_disable_setting(self, key: str) -> None:

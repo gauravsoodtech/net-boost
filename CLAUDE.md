@@ -17,6 +17,10 @@ The codebase was upgraded to **Version 2 Premium** by the AI agent Antigravity (
 - **Smooth Animations:** Transition algorithms (`QGraphicsOpacityEffect` and `QPropertyAnimation`) were introduced for Tabs and Toasts to feel vastly smoother. Do not use instant transitions for any new UI components.
 - **Bug Fixes & Zero-Bug Standard:** A false 100% ICMP packet loss bug was solved by enforcing rapid `ping.exe` fallbacks if the raw socket block triggers (`core/ping_monitor.py`). An integration charset bug (`cp1252`) was patched. Maintain the 100% test coverage threshold.
 
+## Version 2.1 Adaptive Advisor
+
+Adaptive Mode is now **Adaptive Advisor**. It detects loss, ping spikes, and background contention, then queues recommendations in the Monitor tab instead of mutating Windows settings automatically. Any accepted recommendation must route through the existing `MainWindow._apply_wifi`, `_apply_optimizer`, or `_apply_fps` methods so `StateGuard`, transactions, applied badges, diagnostics, and restore paths stay consistent.
+
 ---
 
 ## Architecture
@@ -59,6 +63,8 @@ tests/                      # pytest unit tests + integration check script
 | `core/ram_optimizer.py` | EmptyWorkingSet + file cache flush | `RamOptimizer` |
 | `core/route_analyzer.py` | tracert parser, bottleneck detection, game server discovery | `_TraceRouteWorker`, `_DiscoverWorker`, `mark_bottlenecks()` |
 | `core/settings_risk.py` | Risk metadata for every toggle key (pure Python, no Qt) | `get_risk()`, `filter_by_level()` |
+| `core/adaptive_engine.py` | Converts telemetry windows into advisor recommendations; no system mutation | `AdaptiveEngine`, `AdaptiveRecommendation` |
+| `core/adaptive_advisor.py` | Session-local recommendation queue and settings merge helpers | `RecommendationQueue`, `merge_settings_patch()` |
 
 ---
 
@@ -313,6 +319,14 @@ Collapsible `QFrame` appended below the stats bar in the Monitor tab.
 - `update_applied_settings(applied: dict[str, dict])` — rebuilds rows; called after every successful apply/restore and after Game Mode activation
 - `add_alert(message, culprit_key)` — prepends timestamped alert row; if `culprit_key` is given, adds a `[Disable <key>]` button that emits `disable_setting_requested`
 - `TabMonitor.disable_setting_requested` signal is forwarded to `MainWindow._on_disable_setting(key)`
+- `set_recommendations(recommendations)` updates the Pending Recommendations list; rows emit `recommendation_action_requested(id, action)` with `apply` or `dismiss`
+
+### Adaptive Advisor in `MainWindow`
+
+- `_on_adaptive_recommendation(recommendation)` stores session-local recommendations in `RecommendationQueue`, logs them, refreshes the Monitor tab, and shows a warning toast.
+- `_on_recommendation_action(id, "apply")` merges the recommendation patch with the relevant tab settings and calls the existing apply path for that tab.
+- `_on_recommendation_action(id, "dismiss")` removes the row, marks it handled in `AdaptiveEngine`, and leaves Windows settings untouched.
+- Disabling `adaptive_mode` clears the pending recommendation queue and deactivates the engine.
 
 ### Health Monitoring in `MainWindow`
 
