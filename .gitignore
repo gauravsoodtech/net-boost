@@ -50,3 +50,8 @@ htmlcov/
 
 # Claude Code local settings
 .claude/
+
+# Local agent/planning state
+.superpowers/
+.worktrees
+.worktrees/
