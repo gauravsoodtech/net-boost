@@ -23,15 +23,17 @@ This is the most important tab. The Intel Wi-Fi adapter power-saves aggressively
 
 | Toggle | What it does |
 |--------|-------------|
+| **Disable Large Send Offload (LSO)** | Stops NIC packet batching that can cause in-game ping bursts |
+| **Disable Interrupt Moderation** | Delivers packets more immediately, with slightly higher CPU usage |
 | **Disable Power Saving** | Stops Wi-Fi from sleeping between packets — eliminates random ping spikes |
-| **Minimize Roaming Aggressiveness** | Stops the adapter from scanning for "better" access points mid-game |
+| **Minimize Roaming Aggressiveness** | Advanced/manual only; can cause drops during AP handoff |
 | **Maximum TX Power** | Cranks transmit power to max — stronger signal, fewer dropped packets |
-| **Disable Background BSS Scanning** | Stops background Wi-Fi scanning that causes brief lag bursts |
-| **Prefer 6 GHz Band** | Routes traffic to the less congested 6 GHz band (requires Wi-Fi 6E router) |
-| **Throughput Booster** | Intel-specific flag that increases packet throughput |
+| **Disable Background BSS Scanning** | Advanced/manual only; test per router environment |
+| **Prefer 6 GHz Band** | Advanced/manual only; use only if 6 GHz is stable and strong |
+| **Throughput Booster** | Throughput setting, not a Stable Ping setting |
 | **Disable MIMO Power Saving** | Keeps all antenna chains active instead of powering some off to save battery |
 
-→ Turn all ON → Click **Apply All** → Click **Test Latency** to see before/after ping
+Stable Ping default: LSO off, Interrupt Moderation off, Power Saving off, and Maximum TX Power on. Leave the advanced Wi-Fi options off until monitoring shows a reason to test them one at a time.
 
 ---
 
@@ -71,7 +73,7 @@ Fixes low-level TCP behavior and frees up bandwidth by pausing background servic
 |--------|-------------|
 | **Free RAM Now** | Forces background apps out of RAM so your game gets more memory |
 
-→ Enable all TCP toggles → Switch DNS to Cloudflare → Enable all 3 service pauses → Click **Apply All Optimizations**
+For VALORANT Stable Ping Mode, leave TCP, DNS, and service toggles off by default. Use this tab manually when monitoring shows a specific reason, and test one setting at a time.
 
 ---
 
@@ -110,11 +112,11 @@ Reduces frame time variance (stutters) and gives your game maximum CPU/GPU headr
 
 ### 4. Dashboard Tab
 
-Your main control panel. Once the first 3 tabs are configured, this is all you need day-to-day.
+Your main control panel. For VALORANT, load the stable profile once, arm Game Mode, and launch the game.
 
 | Element | What it does |
 |---------|-------------|
-| **Game Mode toggle** | Master switch — turns on all your configured optimizations at once |
+| **Game Mode toggle** | Arms the game-session profile; VALORANT applies only the stable Wi-Fi latency bundle automatically |
 | **Detected Game** | Shows the game NetBoost has detected running (updates within 1.5 seconds of launch) |
 | **Active Profile** | Shows which settings profile is currently loaded |
 | **Ping / Jitter / Loss badges** | Live stats from the ping monitor |
@@ -169,10 +171,11 @@ Save and switch between different settings configurations.
 | **Load Profile** | Apply all settings from the selected profile |
 | **Set as Active** | Mark a profile as the default |
 
-**Recommended profiles to create:**
-- `Gaming` — all optimizations ON (your current setup)
-- `Work` — TCP/DNS only, no service pauses, no aggressive tweaks
-- `Default` — everything OFF (clean baseline)
+**Built-in profiles:**
+- `VALORANT Stable Ping` - conservative automatic VALORANT profile.
+- `Gaming` - stable-ping defaults for general use.
+- `Work` - TCP/DNS-oriented profile for non-gaming use.
+- `Default` - everything OFF (clean baseline).
 
 ---
 

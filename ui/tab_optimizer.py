@@ -213,14 +213,14 @@ class TabOptimizer(QWidget):
         layout.addLayout(btn_row)
         layout.addStretch()
 
-        # Default all toggles to ON
-        self.set_settings({key: True for key in self._toggle_rows})
+        # Stable Ping default: TCP, DNS, and service tweaks stay manual.
+        self.set_settings({key: False for key in self._toggle_rows})
 
     # ---------------------------------------------------------- Internals ------
 
     def _on_restore(self) -> None:
         self.settings_restored.emit()
-        self.set_settings({key: True for key in self._toggle_rows})
+        self.set_settings({key: False for key in self._toggle_rows})
 
     @staticmethod
     def _validate_dns_input(field, text: str) -> None:

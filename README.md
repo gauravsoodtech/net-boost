@@ -38,13 +38,17 @@ NetBoost fixes all of it with one click.
 ### 📶 Wi-Fi Optimizer — Kills Ping Spikes
 The Intel AX211 aggressively power-saves and background-scans by default, causing random 200–500ms spikes. NetBoost disables this at the driver registry level:
 
+Stable Ping Mode for VALORANT now applies only the conservative Wi-Fi latency bundle automatically. Broader TCP, DNS, service, and FPS tweaks stay manual so they do not make jitter worse elsewhere.
+
 | Tweak | Effect |
 |-------|--------|
+| Disable Large Send Offload | Reduces NIC packet-batching latency spikes |
+| Disable Interrupt Moderation | Delivers packets more immediately, with a small CPU trade-off |
 | Disable Power Saving (`PowerSavingMode=0`) | Eliminates random ping spikes |
-| Minimize Roaming Aggressiveness | Stops mid-game AP scanning |
-| Prefer 6 GHz Band | Less congestion, lower latency |
+| Minimize Roaming Aggressiveness | Advanced/manual only; can cause drops during AP handoff |
+| Prefer 6 GHz Band | Advanced/manual only; useful only if 6 GHz is stable and strong |
 | Max TX Power | Stronger signal, fewer retransmits |
-| Disable Background BSS Scanning | No more scan-induced lag |
+| Disable Background BSS Scanning | Advanced/manual only; test per router environment |
 
 ### 🎯 FPS Booster
 | Tweak | Effect |
@@ -57,13 +61,14 @@ The Intel AX211 aggressively power-saves and background-scans by default, causin
 | Disable Dynamic P-States | Stable GPU clocks between frames |
 
 ### 🌐 Network Optimizer
-- **Nagle's Algorithm off** (`TCPNoDelay=1`) — reduces latency for small packets
-- **TCP Ack Frequency=1** — no delayed acknowledgements
-- **DNS switch** to Cloudflare (1.1.1.1), Google (8.8.8.8), or Quad9 (9.9.9.9)
+For VALORANT Stable Ping Mode, TCP, DNS, and service controls are manual advanced settings. They can still be useful for specific situations, but they are no longer part of the automatic low-jitter bundle.
+
+- **TCP tweaks** (`TCPNoDelay`, `TcpAckFrequency`, window scaling) are system-wide TCP changes and do not target VALORANT's UDP gameplay traffic.
+- **DNS switch** to Cloudflare (1.1.1.1), Google (8.8.8.8), Quad9 (9.9.9.9), or OpenDNS. DNS can improve lookup speed, but it does not stabilize packets after a match connection is established.
 - **DSCP QoS marking** — marks game traffic as Expedited Forwarding (DSCP 46)
 
 ### 🔇 Background Killer
-- Pauses **Windows Update**, **OneDrive**, **BITS** on game launch
+- Manual advanced option to pause **Windows Update**, **OneDrive**, **BITS**, or telemetry during a session
 - Suspends **SearchIndexer**, deprioritizes browsers
 - Everything **auto-restored** when game exits
 
@@ -172,14 +177,13 @@ Output: `dist/main.exe` → rename to `NetBoost.exe`
 
 ## Usage Guide
 
-1. **Wi-Fi tab first** — enable all toggles, click Apply All → instant ping improvement
-2. **FPS Boost tab** — enable all, click Apply FPS Boost
-3. **Optimizer tab** — TCP tweaks + switch DNS to Cloudflare + pause background services
-4. **Dashboard** — toggle Game Mode ON
-5. **Profiles tab** — save as "Gaming" profile for 1-click activation next time
-6. **Settings tab** — enable "Start with Windows" + "Auto-enable Game Mode"
+1. **Profiles tab** - load `VALORANT Stable Ping` or the updated `Gaming` profile.
+2. **Dashboard** - toggle Game Mode ON. With no game running, it is armed but does not change Windows settings.
+3. **Launch VALORANT** - NetBoost applies only the stable Wi-Fi latency bundle while the game session is active.
+4. **Monitor tab** - watch ping, jitter, loss, and any health recommendations.
+5. **Advanced manual tuning** - test TCP, DNS, service, FPS, roaming, or 6 GHz options one at a time only if monitoring shows a reason.
 
-After setup, just launch your game. NetBoost handles everything automatically.
+After setup, just launch VALORANT. NetBoost keeps the automatic path conservative and reversible.
 
 ---
 

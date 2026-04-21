@@ -173,8 +173,9 @@ class TabWifi(QWidget):
         layout.addLayout(btn_row)
         layout.addStretch()
 
-        # Default all toggles to ON
-        self.set_settings({key: True for key in self._toggle_rows})
+        # Stable Ping default: only targeted latency settings are on.
+        from core.stable_ping_policy import stable_ping_wifi_settings
+        self.set_settings(stable_ping_wifi_settings())
 
     # ---------------------------------------------------------- Internals ------
 
@@ -183,7 +184,8 @@ class TabWifi(QWidget):
 
     def _on_restore(self) -> None:
         self.settings_restored.emit()
-        self.set_settings({key: True for key in self._toggle_rows})
+        from core.stable_ping_policy import stable_ping_wifi_settings
+        self.set_settings(stable_ping_wifi_settings())
 
     def _on_test_latency(self) -> None:
         self._test_btn.setEnabled(False)

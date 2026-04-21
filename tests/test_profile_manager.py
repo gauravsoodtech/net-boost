@@ -34,8 +34,25 @@ class TestProfileManager:
         manager.load_all()
         profiles = manager.list_profiles()
         assert "Gaming" in profiles
+        assert "VALORANT Stable Ping" in profiles
         assert "Work" in profiles
         assert "Default" in profiles
+
+    def test_load_all_adds_missing_builtins_without_overwriting_user_profiles(self, manager):
+        """Existing profile folders should still receive newly-added built-ins."""
+        custom_profile = {
+            "name": "Custom",
+            "dns": {"switch_dns": False},
+            "wifi_optimizer": {"enabled": False},
+        }
+        manager.save_profile("Custom", custom_profile)
+
+        manager.load_all()
+
+        profiles = manager.list_profiles()
+        assert "Custom" in profiles
+        assert "VALORANT Stable Ping" in profiles
+        assert manager.load_profile("Custom")["dns"]["switch_dns"] is False
 
     def test_save_and_load_profile(self, manager):
         """save_profile + load_profile round-trip."""
@@ -131,13 +148,25 @@ class TestProfileManager:
         result = manager.get_profile("NonExistent")
         assert result is None
 
-    def test_gaming_profile_has_all_optimizations_on(self, manager):
-        """Default Gaming profile should have all optimizations enabled."""
+    def test_gaming_profile_uses_stable_ping_defaults(self, manager):
+        """Default Gaming profile should avoid broad system-wide tweaks by default."""
         manager.load_all()
         profile = manager.load_profile("Gaming")
-        assert profile["tcp_optimizer"]["enabled"] is True
+        wifi_enabled = {
+            key for key, value in profile["wifi_optimizer"].items()
+            if value is True and key != "enabled"
+        }
+        assert wifi_enabled == {
+            "disable_lso",
+            "disable_interrupt_mod",
+            "disable_power_saving",
+            "max_tx_power",
+        }
+        assert profile["tcp_optimizer"]["enabled"] is False
+        assert profile["dns"]["switch_dns"] is False
+        assert profile["background_killer"]["pause_onedrive"] is False
         assert profile["wifi_optimizer"]["enabled"] is True
-        assert profile["fps_boost"]["enabled"] is True
+        assert profile["fps_boost"]["enabled"] is False
 
     def test_default_profile_all_off(self, manager):
         """Default 'Default' profile should have all optimizations disabled."""

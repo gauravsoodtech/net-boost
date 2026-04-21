@@ -94,7 +94,7 @@ class TabDashboard(QWidget):
 
         # Master toggle
         self._game_mode_switch = ToggleSwitch()
-        self._game_mode_switch.setToolTip("Enable/disable all NetBoost optimisations")
+        self._game_mode_switch.setToolTip("Arm/disarm the game-session stable ping profile")
         self._game_mode_switch.toggled.connect(self._on_game_mode_toggled)
 
         gm_title = QLabel("Game Mode")
@@ -176,10 +176,10 @@ class TabDashboard(QWidget):
 
     def _on_game_mode_toggled(self, checked: bool) -> None:
         self.game_mode_toggled.emit(checked)
-        self._status_label.setText(
-            "Game Mode ENABLED — all optimisations active." if checked
-            else "Game Mode DISABLED."
-        )
+        if checked:
+            self._status_label.setText("Game Mode ENABLED - stable ping profile armed.")
+        else:
+            self._status_label.setText("Game Mode DISABLED.")
 
     # ---------------------------------------------------------- Public API ------
 

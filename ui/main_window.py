@@ -466,34 +466,61 @@ class MainWindow(QMainWindow):
             self._deactivate_game_mode()
 
     def _activate_game_mode(self, exe_name: str):
-        """Apply all tab settings when Game Mode is enabled."""
+        """Apply the game-session settings selected for the detected game."""
         logger.info(f"Activating game mode" + (f" for {exe_name}" if exe_name else ""))
+        from core.stable_ping_policy import build_game_mode_plan, is_stable_ping_game
+
+        plan = build_game_mode_plan(
+            exe_name,
+            current_wifi=self.tab_wifi.get_settings(),
+            current_fps=self.tab_fps.get_settings(),
+            current_optimizer=self.tab_optimizer.get_settings(),
+        )
+
+        if not plan:
+            self._game_mode_applied = False
+            self._set_status("Game Mode armed - waiting for a detected game")
+            self._toast.show_message(
+                "Game Mode armed - launch VALORANT to apply stable ping settings",
+                "info",
+            )
+            return
+
         any_succeeded = False
         failed_sections = []
 
-        try:
-            self._apply_wifi(self.tab_wifi.get_settings())
-            self._applied_settings["wifi"] = self.tab_wifi.get_settings()
-            any_succeeded = True
-        except Exception as e:
-            logger.warning(f"Wi-Fi game mode apply failed: {e}")
-            failed_sections.append("Wi-Fi")
+        if "wifi" in plan:
+            try:
+                wifi_settings = plan["wifi"]
+                self._apply_wifi(wifi_settings)
+                self._applied_settings["wifi"] = wifi_settings
+                self.tab_wifi.mark_applied(wifi_settings)
+                any_succeeded = True
+            except Exception as e:
+                logger.warning(f"Wi-Fi game mode apply failed: {e}")
+                failed_sections.append("Wi-Fi")
 
-        try:
-            self._apply_fps(self.tab_fps.get_settings())
-            self._applied_settings["fps"] = self.tab_fps.get_settings()
-            any_succeeded = True
-        except Exception as e:
-            logger.warning(f"FPS game mode apply failed: {e}")
-            failed_sections.append("FPS")
+        if "fps" in plan:
+            try:
+                fps_settings = plan["fps"]
+                self._apply_fps(fps_settings)
+                self._applied_settings["fps"] = fps_settings
+                self.tab_fps.mark_applied(fps_settings)
+                any_succeeded = True
+            except Exception as e:
+                logger.warning(f"FPS game mode apply failed: {e}")
+                failed_sections.append("FPS")
 
-        try:
-            self._apply_optimizer(self.tab_optimizer.get_settings())
-            self._applied_settings["optimizer"] = self.tab_optimizer.get_settings()
-            any_succeeded = True
-        except Exception as e:
-            logger.warning(f"Optimizer game mode apply failed: {e}")
-            failed_sections.append("Optimizer")
+        if "optimizer" in plan:
+            try:
+                optimizer_settings = plan["optimizer"]
+                self._apply_optimizer(optimizer_settings)
+                self._applied_settings["optimizer"] = optimizer_settings
+                self.tab_optimizer.mark_applied(optimizer_settings)
+                any_succeeded = True
+            except Exception as e:
+                logger.warning(f"Optimizer game mode apply failed: {e}")
+                failed_sections.append("Optimizer")
 
         self._game_mode_applied = any_succeeded
         self.tab_monitor.update_applied_settings(self._applied_settings)
@@ -506,8 +533,11 @@ class MainWindow(QMainWindow):
         if failed_sections:
             msg = f"Game Mode: partial — {', '.join(failed_sections)} failed"
             self._toast.show_message(msg, "warning")
+        elif is_stable_ping_game(exe_name):
+            self._set_status("VALORANT Stable Ping profile active")
+            self._toast.show_message("VALORANT Stable Ping profile applied", "success")
         else:
-            self._toast.show_message("Game Mode: all optimizations applied", "success")
+            self._toast.show_message("Game Mode: configured profile applied", "success")
 
     def _deactivate_game_mode(self):
         """Restore settings only if Game Mode was the one that applied them."""

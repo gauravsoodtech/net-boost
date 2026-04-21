@@ -51,11 +51,11 @@ class TestFilterByLevel:
             assert max(high_indices) < min(medium_indices)
 
     def test_low_excluded_when_min_medium(self):
-        keys = ["power_plan", "tcp_no_delay", "minimize_roaming"]
+        keys = ["power_plan", "timer_resolution", "minimize_roaming"]
         results = filter_by_level(keys, min_level="MEDIUM")
         result_keys = [k for k, _ in results]
         assert "power_plan" not in result_keys
-        assert "tcp_no_delay" not in result_keys
+        assert "timer_resolution" not in result_keys
         assert "minimize_roaming" in result_keys
 
     def test_low_included_when_min_low(self):
@@ -85,6 +85,11 @@ class TestFilterByLevel:
         assert len(results) == 1
         assert results[0][0] == "nvidia_max_perf"
         assert results[0][1]["level"] == "MEDIUM"
+
+    def test_tcp_tweaks_are_medium_for_stable_ping_mode(self):
+        results = filter_by_level(["tcp_no_delay", "tcp_ack_freq"], min_level="MEDIUM")
+        result_keys = [key for key, _ in results]
+        assert result_keys == ["tcp_no_delay", "tcp_ack_freq"]
 
     def test_sort_order_stability(self):
         """Multiple HIGH keys should all precede any MEDIUM keys."""

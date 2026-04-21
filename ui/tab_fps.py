@@ -130,8 +130,8 @@ class TabFps(QWidget):
         layout.addLayout(btn_row)
         layout.addStretch()
 
-        # Default all toggles to ON
-        self.set_settings({key: True for key in self._toggle_rows})
+        # Stable Ping default: FPS/GPU tweaks stay manual.
+        self.set_settings({key: False for key in self._toggle_rows})
 
     # ---------------------------------------------------------- Internals ------
 
@@ -140,7 +140,7 @@ class TabFps(QWidget):
 
     def _on_restore(self) -> None:
         self.settings_restored.emit()
-        self.set_settings({key: True for key in self._toggle_rows})
+        self.set_settings({key: False for key in self._toggle_rows})
 
     # ---------------------------------------------------------- Public API ------
 

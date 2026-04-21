@@ -13,6 +13,8 @@ import logging
 import os
 import shutil
 
+from core.stable_ping_policy import stable_ping_wifi_settings
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -56,6 +58,7 @@ def _empty_profile(name: str = "") -> dict:
             "pause_windows_update": False,
             "pause_onedrive": False,
             "pause_bits": False,
+            "pause_telemetry": False,
             "enabled": False,
         },
         "fps_boost": {
@@ -77,6 +80,8 @@ def _empty_profile(name: str = "") -> dict:
         },
         "game_list": [],
         "wifi_optimizer": {
+            "disable_lso": False,
+            "disable_interrupt_mod": False,
             "disable_power_saving": False,
             "minimize_roaming": False,
             "prefer_6ghz": False,
@@ -101,35 +106,54 @@ def _empty_profile(name: str = "") -> dict:
 
 def _build_gaming_profile() -> dict:
     p = _empty_profile("Gaming")
-    p["dns"].update({"switch_dns": True, "dns_provider": "Cloudflare 1.1.1.1", "dns_primary": "1.1.1.1", "dns_secondary": "1.0.0.1"})
-    p["tcp_optimizer"].update({"tcp_no_delay": True, "tcp_ack_freq": True, "tcp_window_scale": True, "enabled": True})
-    p["bandwidth"].update({"game_priority": True, "enabled": True})
-    p["background_killer"].update({"pause_windows_update": True, "pause_onedrive": True, "pause_bits": True, "enabled": True})
+    p["dns"].update({
+        "switch_dns": False,
+        "dns_provider": "Cloudflare 1.1.1.1",
+        "dns_primary": "1.1.1.1",
+        "dns_secondary": "1.0.0.1",
+    })
+    p["tcp_optimizer"].update({
+        "tcp_no_delay": False,
+        "tcp_ack_freq": False,
+        "tcp_window_scale": False,
+        "enabled": False,
+    })
+    p["bandwidth"].update({"game_priority": False, "enabled": False})
+    p["background_killer"].update({
+        "pause_windows_update": False,
+        "pause_onedrive": False,
+        "pause_bits": False,
+        "enabled": False,
+    })
     p["fps_boost"].update({
-        "power_plan": True,
-        "pcores_affinity": True,
-        "timer_resolution": True,
-        "game_dvr_off": True,
-        "nvidia_max_perf": True,
+        "power_plan": False,
+        "pcores_affinity": False,
+        "timer_resolution": False,
+        "game_dvr_off": False,
+        "nvidia_max_perf": False,
         "nvidia_ull": False,
         "disable_hags": False,
-        "fullscreen_opt_off": True,
-        "sysmain_off": True,
-        "visual_effects_off": True,
-        "enabled": True,
+        "fullscreen_opt_off": False,
+        "sysmain_off": False,
+        "visual_effects_off": False,
+        "enabled": False,
     })
     p["ping_monitor"].update({"host": "1.1.1.1", "interval_ms": 500})
-    p["wifi_optimizer"].update({
-        "disable_power_saving": True,
-        "minimize_roaming": True,
-        "prefer_6ghz": True,
-        "max_tx_power": True,
-        "disable_bss_scan": True,
-        "throughput_booster": True,
-        "disable_mimo_power_save": True,
-        "enabled": True,
+    p["wifi_optimizer"].update(stable_ping_wifi_settings())
+    p["wifi_optimizer"]["enabled"] = True
+    p["nvidia_optimizer"].update({
+        "dynamic_pstate_off": False,
+        "ull_mode": False,
+        "max_power": False,
+        "enabled": False,
     })
-    p["nvidia_optimizer"].update({"dynamic_pstate_off": True, "ull_mode": True, "max_power": True, "enabled": True})
+    return p
+
+
+def _build_valorant_stable_ping_profile() -> dict:
+    p = _build_gaming_profile()
+    p["name"] = "VALORANT Stable Ping"
+    p["game_list"] = ["VALORANT-Win64-Shipping.exe"]
     return p
 
 
@@ -174,6 +198,7 @@ def _build_default_profile() -> dict:
 
 _BUILTIN_PROFILES = {
     "Gaming": _build_gaming_profile,
+    "VALORANT Stable Ping": _build_valorant_stable_ping_profile,
     "Work": _build_work_profile,
     "Default": _build_default_profile,
 }
@@ -197,16 +222,15 @@ def _write_profile(name: str, profile: dict) -> None:
 
 
 def _seed_defaults() -> None:
-    """Write built-in profiles to disk if no profiles exist yet."""
+    """Write missing built-in profiles without overwriting user profiles."""
     _ensure_dirs()
-    existing = [
-        f for f in os.listdir(_PROFILES_DIR) if f.endswith(".json")
-    ]
-    if existing:
-        return
-    logger.info("No profiles found; seeding default profiles.")
+    existing = {
+        f[:-5] for f in os.listdir(_PROFILES_DIR) if f.endswith(".json")
+    }
     for name, factory in _BUILTIN_PROFILES.items():
-        _write_profile(name, factory())
+        if name not in existing:
+            logger.info("Seeding missing built-in profile '%s'.", name)
+            _write_profile(name, factory())
 
 
 # ---------------------------------------------------------------------------
