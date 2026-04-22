@@ -20,7 +20,7 @@ Before deleting anything, close NetBoost via the system tray:
 Delete the entire project folder:
 
 ```
-C:\Users\Gaurav Sood\source\repos\netboost\
+path\to\netboost\
 ```
 
 ---
@@ -30,7 +30,7 @@ C:\Users\Gaurav Sood\source\repos\netboost\
 NetBoost stores profiles, logs, and state here:
 
 ```
-C:\Users\Gaurav Sood\AppData\Roaming\NetBoost\
+%APPDATA%\NetBoost\
 ```
 
 To get there quickly: Press `Win + R` → paste `%APPDATA%\NetBoost` → hit Enter → delete the folder.
@@ -51,7 +51,7 @@ If you turned on "Start with Windows" in Settings:
 If you packaged NetBoost into a standalone executable:
 
 ```
-C:\Users\Gaurav Sood\source\repos\netboost\dist\NetBoost.exe
+path\to\netboost\dist\NetBoost.exe
 ```
 
 ---

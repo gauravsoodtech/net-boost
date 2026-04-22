@@ -19,8 +19,17 @@ logger = logging.getLogger(__name__)
 ADAPTER_CLASS_GUID = "{4D36E972-E325-11CE-BFC1-08002BE10318}"
 WIFI_REGISTRY_BASE = rf"SYSTEM\CurrentControlSet\Control\Class\{ADAPTER_CLASS_GUID}"
 
-# Map registry value name -> PreferredBand value -> band label
-_BAND_MAP = {
+# Current Intel AX211 drivers expose "Preferred Band" as
+# RoamingPreferredBandType. Older drivers used PreferredBand.
+_ROAMING_BAND_MAP = {
+    0: "No Preference",
+    1: "2.4GHz",
+    2: "5GHz",
+    3: "6GHz",
+    4: "5GHz + 6GHz",
+}
+
+_LEGACY_BAND_MAP = {
     1: "2.4GHz",
     2: "5GHz",
     3: "6GHz",
@@ -152,12 +161,12 @@ def apply(settings: dict) -> dict:
 
     Settings keys consumed (all bool):
     - ``disable_power_saving``  — PowerSavingMode=0
-    - ``minimize_roaming``      — RoamAggressiveness=1
-    - ``max_tx_power``          — TxPowerLevel=5
+    - ``minimize_roaming``      — RoamAggressiveness=0
+    - ``max_tx_power``          — IbssTxPower=100, TxPowerLevel=5
     - ``disable_bss_scan``      — BSSSelectorCLsupport=0
-    - ``prefer_6ghz``           — PreferredBand=3
-    - ``throughput_booster``    — Throughput Booster=1
-    - ``disable_mimo_power_save`` — MIMO Power Save Mode=3
+    - ``prefer_6ghz``           — RoamingPreferredBandType=3, PreferredBand=3
+    - ``throughput_booster``    — ThroughputBoosterEnabled=1, Throughput Booster=1
+    - ``disable_mimo_power_save`` — MIMOPowerSaveMode=3, MIMO Power Save Mode=3
     - ``disable_lso``           — *LsoV2IPv4=0, *LsoV2IPv6=0 (eliminates LSO-induced ping spikes)
     - ``disable_interrupt_mod`` — InterruptModeration=0 (every packet interrupts CPU immediately)
 
@@ -175,27 +184,30 @@ def apply(settings: dict) -> dict:
     if settings.get("disable_power_saving"):
         tweaks.append(("PowerSavingMode", 0))
     if settings.get("minimize_roaming"):
-        tweaks.append(("RoamAggressiveness", 1))
+        tweaks.append(("RoamAggressiveness", 0))
     if settings.get("max_tx_power"):
+        tweaks.append(("IbssTxPower", 100))
         tweaks.append(("TxPowerLevel", 5))
     if settings.get("disable_bss_scan"):
         tweaks.append(("BSSSelectorCLsupport", 0))
     if settings.get("prefer_6ghz"):
-        # Check adapter capability before applying 6GHz preference.
-        # WiFi 6E adapters expose a "PreferredBand" value that accepts 3 (6GHz).
-        # Non-6E adapters may not have this parameter, causing a silent no-op.
-        supports_6ghz = _read_reg(adapter_key, "PreferredBand") is not None
-        if supports_6ghz:
+        supports_current = _read_reg(adapter_key, "RoamingPreferredBandType") is not None
+        supports_legacy = _read_reg(adapter_key, "PreferredBand") is not None
+        if supports_current:
+            tweaks.append(("RoamingPreferredBandType", 3))
+        if supports_legacy:
             tweaks.append(("PreferredBand", 3))
-        else:
+        if not supports_current and not supports_legacy:
             logger.warning(
                 "wifi_optimizer: adapter does not expose PreferredBand — "
                 "6GHz preference skipped (adapter may not support WiFi 6E)."
             )
             backup["_6ghz_unsupported"] = True
     if settings.get("throughput_booster"):
+        tweaks.append(("ThroughputBoosterEnabled", 1))
         tweaks.append(("Throughput Booster", 1))
     if settings.get("disable_mimo_power_save"):
+        tweaks.append(("MIMOPowerSaveMode", 3))
         tweaks.append(("MIMO Power Save Mode", 3))
     if settings.get("disable_lso"):
         # Large Send Offload lets the NIC batch outgoing TCP segments into large
@@ -254,14 +266,19 @@ def get_current_band() -> str:
     """
     Return the currently configured preferred band as a human-readable string.
 
-    Returns ``"2.4GHz"``, ``"5GHz"``, or ``"6GHz"``.  Defaults to ``"2.4GHz"``
-    if the value is absent or unrecognised.
+    Returns ``"No Preference"``, ``"2.4GHz"``, ``"5GHz"``, ``"6GHz"``, or
+    ``"5GHz + 6GHz"``. Defaults to ``"2.4GHz"`` if the value is absent or
+    unrecognised.
     """
     adapter_key = get_wifi_adapter_key()
     if adapter_key is None:
         return "2.4GHz"
-    val = _read_reg(adapter_key, "PreferredBand")
-    return _BAND_MAP.get(val, "2.4GHz")
+    roaming_val = _read_reg(adapter_key, "RoamingPreferredBandType")
+    if roaming_val in _ROAMING_BAND_MAP:
+        return _ROAMING_BAND_MAP[roaming_val]
+
+    legacy_val = _read_reg(adapter_key, "PreferredBand")
+    return _LEGACY_BAND_MAP.get(legacy_val, "2.4GHz")
 
 
 def test_latency(host: str = "1.1.1.1") -> float:

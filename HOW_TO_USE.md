@@ -5,7 +5,7 @@
 ## Running the App
 
 ```bash
-cd "C:\Users\Gaurav Sood\source\repos\netboost"
+cd path\to\netboost
 python main.py
 ```
 
@@ -26,14 +26,16 @@ This is the most important tab. The Intel Wi-Fi adapter power-saves aggressively
 | **Disable Large Send Offload (LSO)** | Stops NIC packet batching that can cause in-game ping bursts |
 | **Disable Interrupt Moderation** | Delivers packets more immediately, with slightly higher CPU usage |
 | **Disable Power Saving** | Stops Wi-Fi from sleeping between packets — eliminates random ping spikes |
-| **Minimize Roaming Aggressiveness** | Advanced/manual only; can cause drops during AP handoff |
-| **Maximum TX Power** | Cranks transmit power to max — stronger signal, fewer dropped packets |
+| **Minimize Roaming Aggressiveness** | Advanced/manual only; sets the Intel driver to its lowest roaming level |
+| **Maximum TX Power** | Sets the Intel driver to maximum transmit power for a stronger link |
 | **Disable Background BSS Scanning** | Advanced/manual only; test per router environment |
 | **Prefer 6 GHz Band** | Advanced/manual only; use only if 6 GHz is stable and strong |
 | **Throughput Booster** | Throughput setting, not a Stable Ping setting |
 | **Disable MIMO Power Saving** | Keeps all antenna chains active instead of powering some off to save battery |
 
 Stable Ping default: LSO off, Interrupt Moderation off, Power Saving off, and Maximum TX Power on. Leave the advanced Wi-Fi options off until monitoring shows a reason to test them one at a time.
+
+NetBoost supports the current Intel AX211 driver keywords (`RoamingPreferredBandType`, `IbssTxPower`, `ThroughputBoosterEnabled`, `MIMOPowerSaveMode`) and keeps legacy keyword fallbacks for older driver packages.
 
 ---
 

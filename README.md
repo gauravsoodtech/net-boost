@@ -13,7 +13,7 @@
 [![Built with Claude](https://img.shields.io/badge/Built%20with-Claude%20AI-D97706?style=for-the-badge&logo=anthropic&logoColor=white)](https://claude.ai)
 [![Maintained with Codex](https://img.shields.io/badge/Maintained%20with-OpenAI%20Codex-412991?style=for-the-badge&logo=openai&logoColor=white)](https://openai.com/codex)
 
-> **Version 2.1 Released!** Adds Adaptive Advisor: NetBoost detects loss, jitter, ping spikes, and background contention, then queues user-approved recommendations instead of silently changing system settings.
+> **Version 2.1 Released!** Adds Adaptive Advisor: NetBoost detects loss, jitter, ping spikes, and background contention, then queues user-approved recommendations instead of silently changing system settings. Wi-Fi tuning now targets current and legacy Intel AX211 driver property names.
 
 ![NetBoost Dashboard](https://i.imgur.com/placeholder.png)
 
@@ -46,9 +46,9 @@ Stable Ping Mode for VALORANT now applies only the conservative Wi-Fi latency bu
 | Disable Large Send Offload | Reduces NIC packet-batching latency spikes |
 | Disable Interrupt Moderation | Delivers packets more immediately, with a small CPU trade-off |
 | Disable Power Saving (`PowerSavingMode=0`) | Eliminates random ping spikes |
-| Minimize Roaming Aggressiveness | Advanced/manual only; can cause drops during AP handoff |
-| Prefer 6 GHz Band | Advanced/manual only; useful only if 6 GHz is stable and strong |
-| Max TX Power | Stronger signal, fewer retransmits |
+| Minimize Roaming Aggressiveness (`RoamAggressiveness=0`) | Advanced/manual only; reduces roaming scans, but can delay AP handoff |
+| Prefer 6 GHz Band (`RoamingPreferredBandType=3`) | Advanced/manual only; useful only if 6 GHz is stable and strong |
+| Max TX Power (`IbssTxPower=100`) | Stronger signal, fewer retransmits |
 | Disable Background BSS Scanning | Advanced/manual only; test per router environment |
 
 ### 🎯 FPS Booster
@@ -262,7 +262,9 @@ netboost/
 ## How It Works
 
 ### The Wi-Fi Spike Fix (Most Important)
-Intel's AX211 driver uses aggressive power saving by default — it parks the radio between packets to save battery. This causes 200–500ms spikes whenever a packet arrives after a brief idle period. NetBoost writes directly to the driver's registry key under `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-...}` to disable this behavior permanently while the app is running.
+Intel's AX211 driver uses aggressive power saving by default — it parks the radio between packets to save battery. This causes 200–500ms spikes whenever a packet arrives after a brief idle period. NetBoost writes directly to the driver's registry key under `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-...}` to disable this behavior while the app is running.
+
+Recent Intel drivers expose some adapter settings under newer registry keywords such as `RoamingPreferredBandType`, `IbssTxPower`, `ThroughputBoosterEnabled`, and `MIMOPowerSaveMode`. NetBoost handles those current names and keeps legacy keyword fallbacks for older driver packages.
 
 ### P-Core Affinity
 The i7-13650HX has 6 Performance cores (threads 0–11) and 8 Efficiency cores (threads 12–19). Windows sometimes schedules game threads on E-cores, causing stutters. NetBoost uses `SetProcessAffinityMask` to pin the game process to P-cores only (`0x0FFF`).
