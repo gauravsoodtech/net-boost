@@ -41,6 +41,7 @@ desktop.ini
 
 # Test cache
 .pytest_cache/
+.test-tmp/
 .coverage
 htmlcov/
 
