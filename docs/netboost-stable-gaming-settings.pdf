@@ -1,0 +1,230 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [6 0 R 8 0 R 10 0 R 12 0 R 14 0 R] /Count 5 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >>
+endobj
+5 0 obj
+<< /Length 2896 >>
+stream
+BT /F2 18.0 Tf 54.0 780.0 Td (NetBoost Stable Gaming Settings Guide) Tj ET
+BT /F1 10.5 Tf 54.0 747.0 Td (This guide is for a smooth gaming session with stable ping and) Tj ET
+BT /F1 10.5 Tf 54.0 732.5 Td (fewer jitter spikes. It is written for VALORANT first, but the) Tj ET
+BT /F1 10.5 Tf 54.0 718.0 Td (same conservative idea works for most online games.) Tj ET
+BT /F1 10.5 Tf 54.0 696.5 Td (The main rule is simple: do not turn everything on. Start with) Tj ET
+BT /F1 10.5 Tf 54.0 682.0 Td (the stable settings, play a few matches, and only change one) Tj ET
+BT /F1 10.5 Tf 54.0 667.5 Td (extra setting at a time if you still see a problem.) Tj ET
+BT /F2 14.0 Tf 54.0 638.0 Td (Recommended Setup) Tj ET
+BT /F1 10.5 Tf 54.0 609.0 Td (Use this first:) Tj ET
+BT /F1 10.5 Tf 66.0 587.5 Td (- Profile: VALORANT Stable Ping) Tj ET
+BT /F1 10.5 Tf 66.0 573.0 Td (- Game Mode: ON) Tj ET
+BT /F1 10.5 Tf 66.0 558.5 Td (- Wi-Fi stable bundle: ON) Tj ET
+BT /F1 10.5 Tf 66.0 544.0 Td (- TCP/DNS/FPS advanced tweaks: OFF) Tj ET
+BT /F1 10.5 Tf 66.0 529.5 Td (- Windows Update, BITS, Telemetry: optional ON only while) Tj ET
+BT /F1 10.5 Tf 66.0 515.0 Td (  gaming) Tj ET
+BT /F1 10.5 Tf 66.0 500.5 Td (- OneDrive pause: OFF) Tj ET
+BT /F2 14.0 Tf 54.0 471.0 Td (How To Use It) Tj ET
+BT /F1 10.5 Tf 54.0 442.0 Td (1. Run NetBoost as Administrator.) Tj ET
+BT /F1 10.5 Tf 54.0 427.5 Td (2. Open the Profiles tab.) Tj ET
+BT /F1 10.5 Tf 54.0 413.0 Td (3. Load VALORANT Stable Ping. If it is missing, use Gaming.) Tj ET
+BT /F1 10.5 Tf 54.0 398.5 Td (4. Open the Dashboard tab.) Tj ET
+BT /F1 10.5 Tf 54.0 384.0 Td (5. Turn Game Mode ON.) Tj ET
+BT /F1 10.5 Tf 54.0 369.5 Td (6. Launch VALORANT.) Tj ET
+BT /F1 10.5 Tf 54.0 355.0 Td (7. Watch ping, jitter, and packet loss in the Monitor tab.) Tj ET
+BT /F1 10.5 Tf 54.0 333.5 Td (When Game Mode is ON but no game is running, NetBoost is only) Tj ET
+BT /F1 10.5 Tf 54.0 319.0 Td (armed. It waits for VALORANT before applying the stable) Tj ET
+BT /F1 10.5 Tf 54.0 304.5 Td (settings.) Tj ET
+BT /F2 14.0 Tf 54.0 275.0 Td (Wi-Fi Tab) Tj ET
+BT /F1 10.5 Tf 54.0 246.0 Td (These are the most important settings for ping stability.) Tj ET
+BT /F2 12.0 Tf 54.0 220.5 Td (Turn ON) Tj ET
+BT /F1 10.5 Tf 54.0 193.5 Td (Disable Large Send Offload \(LSO\)) Tj ET
+BT /F1 10.5 Tf 54.0 172.0 Td (LSO lets the network adapter combine packets into larger) Tj ET
+BT /F1 10.5 Tf 54.0 157.5 Td (batches. That can help throughput, but it can also create short) Tj ET
+BT /F1 10.5 Tf 54.0 143.0 Td (ping spikes in games. Turning it off is one of the best low-risk) Tj ET
+BT /F1 10.5 Tf 54.0 128.5 Td (settings for stable latency.) Tj ET
+BT /F1 10.5 Tf 54.0 107.0 Td (Disable Interrupt Moderation) Tj ET
+BT /F1 10.5 Tf 54.0 85.5 Td (Interrupt moderation makes the adapter wait briefly before) Tj ET
+BT /F1 10.5 Tf 54.0 71.0 Td (telling the CPU that packets arrived. This saves CPU, but it can) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 5 0 R >>
+endobj
+7 0 obj
+<< /Length 3084 >>
+stream
+BT /F1 10.5 Tf 54.0 788.0 Td (add small delays. Turning it off makes packet delivery more) Tj ET
+BT /F1 10.5 Tf 54.0 773.5 Td (immediate. CPU usage may increase slightly.) Tj ET
+BT /F1 10.5 Tf 54.0 752.0 Td (Disable Power Saving) Tj ET
+BT /F1 10.5 Tf 54.0 730.5 Td (This stops the Wi-Fi adapter from sleeping or reducing power) Tj ET
+BT /F1 10.5 Tf 54.0 716.0 Td (between packets. It helps prevent random ping spikes caused by) Tj ET
+BT /F1 10.5 Tf 54.0 701.5 Td (Wi-Fi power saving.) Tj ET
+BT /F1 10.5 Tf 54.0 680.0 Td (Maximum TX Power) Tj ET
+BT /F1 10.5 Tf 54.0 658.5 Td (This uses stronger Wi-Fi transmit power. It can improve signal) Tj ET
+BT /F1 10.5 Tf 54.0 644.0 Td (quality and reduce retransmits. It may use a little more power) Tj ET
+BT /F1 10.5 Tf 54.0 629.5 Td (and heat.) Tj ET
+BT /F2 12.0 Tf 54.0 604.0 Td (Keep OFF First) Tj ET
+BT /F1 10.5 Tf 54.0 577.0 Td (Minimize Roaming Aggressiveness) Tj ET
+BT /F1 10.5 Tf 54.0 555.5 Td (This controls how quickly Wi-Fi looks for another access point.) Tj ET
+BT /F1 10.5 Tf 54.0 541.0 Td (Setting it too low can cause problems if Windows needs to move) Tj ET
+BT /F1 10.5 Tf 54.0 526.5 Td (between router bands or access points. Keep it off first.) Tj ET
+BT /F1 10.5 Tf 54.0 505.0 Td (Disable Background BSS Scanning) Tj ET
+BT /F1 10.5 Tf 54.0 483.5 Td (BSS scanning is how Wi-Fi checks nearby networks and access) Tj ET
+BT /F1 10.5 Tf 54.0 469.0 Td (points. Disabling scans can help in some setups, but it can also) Tj ET
+BT /F1 10.5 Tf 54.0 454.5 Td (make Wi-Fi behavior worse on some routers. Test it only later.) Tj ET
+BT /F1 10.5 Tf 54.0 433.0 Td (Prefer 6 GHz Band) Tj ET
+BT /F1 10.5 Tf 54.0 411.5 Td (6 GHz can be cleaner and faster, but only if the router is close) Tj ET
+BT /F1 10.5 Tf 54.0 397.0 Td (and the signal is strong. Forcing 6 GHz can cause reconnects or) Tj ET
+BT /F1 10.5 Tf 54.0 382.5 Td (worse range. Keep it off first unless you know your 6 GHz signal) Tj ET
+BT /F1 10.5 Tf 54.0 368.0 Td (is excellent.) Tj ET
+BT /F1 10.5 Tf 54.0 346.5 Td (Throughput Booster) Tj ET
+BT /F1 10.5 Tf 54.0 325.0 Td (This is for more throughput, not stable ping. It can increase) Tj ET
+BT /F1 10.5 Tf 54.0 310.5 Td (packet bursting and may hurt smooth latency. Keep it off for) Tj ET
+BT /F1 10.5 Tf 54.0 296.0 Td (stable gaming.) Tj ET
+BT /F1 10.5 Tf 54.0 274.5 Td (Disable MIMO Power Saving) Tj ET
+BT /F1 10.5 Tf 54.0 253.0 Td (This keeps more Wi-Fi antenna chains active. It can help) Tj ET
+BT /F1 10.5 Tf 54.0 238.5 Td (throughput, but it is not the first setting to use for jitter.) Tj ET
+BT /F1 10.5 Tf 54.0 224.0 Td (Keep it off first.) Tj ET
+BT /F2 14.0 Tf 54.0 194.5 Td (Optimizer Tab) Tj ET
+BT /F1 10.5 Tf 54.0 165.5 Td (For VALORANT stable ping, leave most of this tab OFF by default.) Tj ET
+BT /F2 12.0 Tf 54.0 140.0 Td (Keep OFF First) Tj ET
+BT /F1 10.5 Tf 54.0 113.0 Td (Disable Nagle's Algorithm / TCP No-Delay) Tj ET
+BT /F1 10.5 Tf 54.0 91.5 Td (This affects TCP traffic. VALORANT gameplay traffic is mainly) Tj ET
+BT /F1 10.5 Tf 54.0 77.0 Td (UDP, so this usually does not improve match ping. It can also) Tj ET
+endstream
+endobj
+8 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 7 0 R >>
+endobj
+9 0 obj
+<< /Length 2904 >>
+stream
+BT /F1 10.5 Tf 54.0 788.0 Td (affect normal Windows networking.) Tj ET
+BT /F1 10.5 Tf 54.0 766.5 Td (TCP Acknowledgement Frequency) Tj ET
+BT /F1 10.5 Tf 54.0 745.0 Td (This is also a TCP setting. It is not a direct fix for VALORANT) Tj ET
+BT /F1 10.5 Tf 54.0 730.5 Td (UDP gameplay packets. Leave it off unless you are testing) Tj ET
+BT /F1 10.5 Tf 54.0 716.0 Td (another TCP-heavy game or app.) Tj ET
+BT /F1 10.5 Tf 54.0 694.5 Td (TCP Window Scaling) Tj ET
+BT /F1 10.5 Tf 54.0 673.0 Td (This helps throughput on some connections, but it is not a ping-) Tj ET
+BT /F1 10.5 Tf 54.0 658.5 Td (stability setting. Some routers and networks may behave worse) Tj ET
+BT /F1 10.5 Tf 54.0 644.0 Td (with global TCP changes.) Tj ET
+BT /F1 10.5 Tf 54.0 622.5 Td (Switch DNS Provider) Tj ET
+BT /F1 10.5 Tf 54.0 601.0 Td (DNS helps your PC find server addresses. It does not stabilize) Tj ET
+BT /F1 10.5 Tf 54.0 586.5 Td (ping after you are already connected to a match. You can test) Tj ET
+BT /F1 10.5 Tf 54.0 572.0 Td (DNS speed manually, but do not expect it to remove in-match) Tj ET
+BT /F1 10.5 Tf 54.0 557.5 Td (jitter.) Tj ET
+BT /F1 10.5 Tf 54.0 536.0 Td (Pause OneDrive) Tj ET
+BT /F1 10.5 Tf 54.0 514.5 Td (Keep this off unless you are sure OneDrive is not syncing.) Tj ET
+BT /F1 10.5 Tf 54.0 500.0 Td (Pausing it mid-sync can cause file sync issues.) Tj ET
+BT /F2 12.0 Tf 54.0 474.5 Td (Optional During Gaming) Tj ET
+BT /F1 10.5 Tf 54.0 447.5 Td (Pause Windows Update) Tj ET
+BT /F1 10.5 Tf 54.0 426.0 Td (Use this if Windows Update is downloading in the background. It) Tj ET
+BT /F1 10.5 Tf 54.0 411.5 Td (can reduce bandwidth competition during a game.) Tj ET
+BT /F1 10.5 Tf 54.0 390.0 Td (Pause BITS) Tj ET
+BT /F1 10.5 Tf 54.0 368.5 Td (BITS is used by Windows and apps for background downloads.) Tj ET
+BT /F1 10.5 Tf 54.0 354.0 Td (Pausing it can help if downloads are causing lag.) Tj ET
+BT /F1 10.5 Tf 54.0 332.5 Td (Pause Windows Telemetry) Tj ET
+BT /F1 10.5 Tf 54.0 311.0 Td (Telemetry can send background data. Pausing it during a match) Tj ET
+BT /F1 10.5 Tf 54.0 296.5 Td (can reduce background traffic.) Tj ET
+BT /F2 14.0 Tf 54.0 267.0 Td (FPS Boost Tab) Tj ET
+BT /F1 10.5 Tf 54.0 238.0 Td (For stable ping, leave FPS Boost settings OFF first. FPS and) Tj ET
+BT /F1 10.5 Tf 54.0 223.5 Td (ping are different problems. Some FPS tweaks can create heat or) Tj ET
+BT /F1 10.5 Tf 54.0 209.0 Td (stutter, which can feel like network lag.) Tj ET
+BT /F2 12.0 Tf 54.0 183.5 Td (Keep OFF First) Tj ET
+BT /F1 10.5 Tf 54.0 156.5 Td (NVIDIA Maximum Performance) Tj ET
+BT /F1 10.5 Tf 54.0 135.0 Td (This can lock the GPU at higher power. It may help FPS, but on) Tj ET
+BT /F1 10.5 Tf 54.0 120.5 Td (laptops it can increase heat and cause throttling later.) Tj ET
+BT /F1 10.5 Tf 54.0 99.0 Td (P-Core Affinity) Tj ET
+BT /F1 10.5 Tf 54.0 77.5 Td (This restricts the game to performance cores. It can help some) Tj ET
+endstream
+endobj
+10 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 9 0 R >>
+endobj
+11 0 obj
+<< /Length 2928 >>
+stream
+BT /F1 10.5 Tf 54.0 788.0 Td (games but hurt others if background or shader threads need more) Tj ET
+BT /F1 10.5 Tf 54.0 773.5 Td (CPU flexibility.) Tj ET
+BT /F1 10.5 Tf 54.0 752.0 Td (Disable HAGS) Tj ET
+BT /F1 10.5 Tf 54.0 730.5 Td (Hardware Accelerated GPU Scheduling can behave differently per) Tj ET
+BT /F1 10.5 Tf 54.0 716.0 Td (system. Changing it often needs a reboot. Do not change it for) Tj ET
+BT /F1 10.5 Tf 54.0 701.5 Td (ping stability.) Tj ET
+BT /F1 10.5 Tf 54.0 680.0 Td (Timer Resolution) Tj ET
+BT /F1 10.5 Tf 54.0 658.5 Td (This can affect frame timing, but it is not a network fix. Leave) Tj ET
+BT /F1 10.5 Tf 54.0 644.0 Td (it off until ping is stable.) Tj ET
+BT /F1 10.5 Tf 54.0 622.5 Td (Visual Effects Off / SysMain Off) Tj ET
+BT /F1 10.5 Tf 54.0 601.0 Td (These may free small system resources, but they are not direct) Tj ET
+BT /F1 10.5 Tf 54.0 586.5 Td (ping fixes. Leave them off first.) Tj ET
+BT /F2 14.0 Tf 54.0 557.0 Td (Best First Match Setup) Tj ET
+BT /F1 10.5 Tf 54.0 528.0 Td (Use this exact setup:) Tj ET
+BT /F1 10.5 Tf 66.0 506.5 Td (- VALORANT Stable Ping profile loaded) Tj ET
+BT /F1 10.5 Tf 66.0 492.0 Td (- Game Mode ON) Tj ET
+BT /F1 10.5 Tf 66.0 477.5 Td (- Wi-Fi: LSO off, Interrupt Moderation off, Power Saving off,) Tj ET
+BT /F1 10.5 Tf 66.0 463.0 Td (  Maximum TX Power on) Tj ET
+BT /F1 10.5 Tf 66.0 448.5 Td (- Optimizer: TCP/DNS/service toggles off, except Windows) Tj ET
+BT /F1 10.5 Tf 66.0 434.0 Td (  Update/BITS/Telemetry if needed) Tj ET
+BT /F1 10.5 Tf 66.0 419.5 Td (- FPS Boost: off) Tj ET
+BT /F1 10.5 Tf 66.0 405.0 Td (- OneDrive pause: off) Tj ET
+BT /F2 14.0 Tf 54.0 375.5 Td (If You Still Get Jitter) Tj ET
+BT /F1 10.5 Tf 54.0 346.5 Td (Change only one thing at a time.) Tj ET
+BT /F1 10.5 Tf 54.0 325.0 Td (1. Check if another device is downloading or streaming.) Tj ET
+BT /F1 10.5 Tf 54.0 310.5 Td (2. Pause Windows Update, BITS, and Telemetry during the match.) Tj ET
+BT /F1 10.5 Tf 54.0 296.0 Td (3. If you are on Wi-Fi, move closer to the router.) Tj ET
+BT /F1 10.5 Tf 54.0 281.5 Td (4. Try 5 GHz instead of 6 GHz if the 6 GHz signal is weak.) Tj ET
+BT /F1 10.5 Tf 54.0 267.0 Td (5. Test Disable Background BSS Scanning for one match.) Tj ET
+BT /F1 10.5 Tf 54.0 252.5 Td (6. Test Disable MIMO Power Saving for one match.) Tj ET
+BT /F1 10.5 Tf 54.0 238.0 Td (7. Do not enable TCP tweaks unless you are testing a TCP-based) Tj ET
+BT /F1 10.5 Tf 54.0 223.5 Td (game or app.) Tj ET
+BT /F2 14.0 Tf 54.0 194.0 Td (What Good Looks Like) Tj ET
+BT /F1 10.5 Tf 54.0 165.0 Td (Good gaming network stats usually look like this:) Tj ET
+BT /F1 10.5 Tf 66.0 143.5 Td (- Packet loss: 0%) Tj ET
+BT /F1 10.5 Tf 66.0 129.0 Td (- Jitter: under 5 ms is excellent) Tj ET
+BT /F1 10.5 Tf 66.0 114.5 Td (- Jitter: 5 to 15 ms is playable) Tj ET
+BT /F1 10.5 Tf 66.0 100.0 Td (- Jitter: over 30 ms means something is wrong) Tj ET
+BT /F1 10.5 Tf 66.0 85.5 Td (- Ping spikes: rare and short) Tj ET
+endstream
+endobj
+12 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 11 0 R >>
+endobj
+13 0 obj
+<< /Length 259 >>
+stream
+BT /F1 10.5 Tf 54.0 788.0 Td (No tool can guarantee zero jitter on Wi-Fi or over the internet.) Tj ET
+BT /F1 10.5 Tf 54.0 773.5 Td (The goal is fewer spikes, lower jitter, and no harmful settings) Tj ET
+BT /F1 10.5 Tf 54.0 759.0 Td (enabled by default.) Tj ET
+endstream
+endobj
+14 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents 13 0 R >>
+endobj
+xref
+0 15
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000142 00000 n 
+0000000212 00000 n 
+0000000287 00000 n 
+0000003235 00000 n 
+0000003371 00000 n 
+0000006507 00000 n 
+0000006643 00000 n 
+0000009599 00000 n 
+0000009736 00000 n 
+0000012717 00000 n 
+0000012855 00000 n 
+0000013166 00000 n 
+trailer
+<< /Size 15 /Root 1 0 R >>
+startxref
+13304
+%%EOF
