@@ -203,9 +203,10 @@ def apply(settings: dict) -> dict:
                 "6GHz preference skipped (adapter may not support WiFi 6E)."
             )
             backup["_6ghz_unsupported"] = True
-    if settings.get("throughput_booster"):
-        tweaks.append(("ThroughputBoosterEnabled", 1))
-        tweaks.append(("Throughput Booster", 1))
+    if "throughput_booster" in settings:
+        throughput_value = 1 if settings.get("throughput_booster") else 0
+        tweaks.append(("ThroughputBoosterEnabled", throughput_value))
+        tweaks.append(("Throughput Booster", throughput_value))
     if settings.get("disable_mimo_power_save"):
         tweaks.append(("MIMOPowerSaveMode", 3))
         tweaks.append(("MIMO Power Save Mode", 3))

@@ -73,6 +73,27 @@ def test_apply_keeps_legacy_keyword_fallbacks_for_older_drivers(monkeypatch):
     assert ("MIMO Power Save Mode", 3) in writes
 
 
+def test_apply_clears_disabled_throughput_booster_keywords(monkeypatch):
+    writes = []
+    reads = {
+        "ThroughputBoosterEnabled": 1,
+        "Throughput Booster": 1,
+    }
+
+    monkeypatch.setattr(wifi_optimizer, "get_wifi_adapter_key", lambda: "adapter-key")
+    monkeypatch.setattr(wifi_optimizer, "_read_reg", lambda subkey, value: reads.get(value))
+    monkeypatch.setattr(
+        wifi_optimizer,
+        "_write_reg",
+        lambda subkey, value, new_value: writes.append((value, new_value)),
+    )
+
+    wifi_optimizer.apply({"throughput_booster": False})
+
+    assert ("ThroughputBoosterEnabled", 0) in writes
+    assert ("Throughput Booster", 0) in writes
+
+
 def test_get_current_band_prefers_current_intel_driver_keyword(monkeypatch):
     values = {
         "RoamingPreferredBandType": 4,
