@@ -4,6 +4,7 @@ Entry point: admin check, crash recovery, Qt bootstrap
 """
 import sys
 import os
+import importlib.util
 import logging
 import traceback
 
@@ -23,8 +24,58 @@ logging.basicConfig(
 logger = logging.getLogger("netboost")
 
 
+RUNTIME_DEPENDENCIES = {
+    "PyQt5": "PyQt5",
+    "PyQtGraph": "pyqtgraph",
+    "psutil": "psutil",
+    "pywin32": "win32api",
+}
+
+
+def missing_runtime_dependencies(find_spec=importlib.util.find_spec):
+    """Return requirement names whose import modules are unavailable."""
+    missing = []
+    for requirement, module_name in RUNTIME_DEPENDENCIES.items():
+        if find_spec(module_name) is None:
+            missing.append(requirement)
+    return missing
+
+
+def _missing_dependency_message(missing):
+    names = ", ".join(missing)
+    return (
+        f"NetBoost cannot start because required Python packages are missing: {names}.\n\n"
+        "Install them from the project directory with:\n"
+        "python -m pip install -r requirements.txt"
+    )
+
+
+def _show_missing_dependency_error(missing):
+    message = _missing_dependency_message(missing)
+    logger.critical(message)
+    print(message, file=sys.stderr)
+
+    if "PyQt5" in missing:
+        return
+
+    try:
+        from PyQt5.QtWidgets import QApplication, QMessageBox
+
+        app = QApplication.instance() or QApplication(sys.argv)
+        QMessageBox.critical(None, "NetBoost - Missing Dependencies", message)
+        app.quit()
+    except Exception as exc:
+        logger.warning("Could not show dependency error dialog: %s", exc)
+
+
 def main():
-    # Step 1: Admin check
+    # Step 1: Dependency check
+    missing = missing_runtime_dependencies()
+    if missing:
+        _show_missing_dependency_error(missing)
+        sys.exit(1)
+
+    # Step 2: Admin check
     from core.admin import is_admin, elevate
     if not is_admin():
         logger.info("Not running as admin — requesting elevation via UAC")
@@ -49,7 +100,7 @@ def main():
 
     logger.info("Running as administrator")
 
-    # Step 2: Crash recovery
+    # Step 3: Crash recovery
     try:
         from core.state_guard import StateGuard
         guard = StateGuard()
@@ -60,7 +111,7 @@ def main():
         logger.warning(f"StateGuard init failed: {e}")
         guard = None
 
-    # Step 3: Load profiles
+    # Step 4: Load profiles
     try:
         from core.profile_manager import ProfileManager
         profile_manager = ProfileManager()
@@ -70,7 +121,7 @@ def main():
         logger.error(f"ProfileManager init failed: {e}")
         profile_manager = None
 
-    # Step 4: Create Qt application
+    # Step 5: Create Qt application
     from PyQt5.QtWidgets import QApplication
     from PyQt5.QtCore import Qt
     from PyQt5.QtGui import QIcon
@@ -99,7 +150,7 @@ def main():
     except Exception:
         pass
 
-    # Step 5: Create main window and tray icon
+    # Step 6: Create main window and tray icon
     from ui.main_window import MainWindow
     from ui.tray_icon import TrayIcon
 
@@ -118,7 +169,7 @@ def main():
 
     window.show()
 
-    # Step 6: Start background threads
+    # Step 7: Start background threads
     from core.ping_monitor import PingMonitor
     from core.process_watcher import ProcessWatcher
 
@@ -151,7 +202,7 @@ def main():
 
     logger.info("NetBoost started successfully")
 
-    # Step 7: Run event loop
+    # Step 8: Run event loop
     def excepthook(exc_type, exc_value, exc_tb):
         logger.critical(
             "Unhandled exception:\n" + "".join(traceback.format_exception(exc_type, exc_value, exc_tb))
@@ -161,7 +212,7 @@ def main():
 
     exit_code = app.exec_()
 
-    # Step 8: Cleanup on exit
+    # Step 9: Cleanup on exit
     logger.info("Shutting down...")
     ping_monitor.stop()
     process_watcher.stop()
