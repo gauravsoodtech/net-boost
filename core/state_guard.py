@@ -6,10 +6,12 @@ application crashes mid-optimisation the next launch can detect the orphaned
 state and automatically restore the system to a clean baseline.
 """
 
+import copy
 import json
 import logging
 import os
 import tempfile
+import time
 
 import psutil
 
@@ -22,6 +24,13 @@ logger = logging.getLogger(__name__)
 _STATE_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "NetBoost")
 _STATE_FILE = os.path.join(_STATE_DIR, "state.json")
 
+# Dict-replacing backup keys whose mutation can produce a branch-on-apply.
+_BACKUP_DICT_KEYS = ("dns_backup", "tcp_backup", "wifi_backup", "nvidia_backup", "fps_backup")
+# Cumulative list keys mirrored into every history entry.
+_BACKUP_LIST_KEYS = ("paused_services", "suspended_pids", "qos_policies")
+# Cap history at this many entries — drops oldest when exceeded.
+_BACKUP_HISTORY_CAP = 5
+
 _EMPTY_STATE: dict = {
     "pid": None,
     "dns_backup": {},
@@ -32,6 +41,7 @@ _EMPTY_STATE: dict = {
     "wifi_backup": {},
     "nvidia_backup": {},
     "fps_backup": {},
+    "backup_history": [],
 }
 
 
@@ -72,19 +82,45 @@ def load_state() -> dict:
     Load state from disk.
 
     Returns a fresh empty state dict if the file does not exist or is corrupt.
+
+    Legacy `state.json` files written before backup_history was introduced
+    are migrated on read by wrapping their flat backup snapshot as a single
+    history entry, so crash recovery still finds something to replay.
     """
     if not os.path.isfile(_STATE_FILE):
-        return dict(_EMPTY_STATE)
+        return copy.deepcopy(_EMPTY_STATE)
     try:
         with open(_STATE_FILE, "r", encoding="utf-8") as fh:
             data = json.load(fh)
-        # Ensure all expected keys are present (forward-compat).
-        merged = dict(_EMPTY_STATE)
+        merged = copy.deepcopy(_EMPTY_STATE)
         merged.update(data)
+
+        if not merged.get("backup_history") and _has_recoverable_state(merged):
+            merged["backup_history"] = [_snapshot_from_flat(merged, ts=0.0)]
+
         return merged
     except (json.JSONDecodeError, OSError) as exc:
         logger.warning("Could not load state file (%s); using empty state.", exc)
-        return dict(_EMPTY_STATE)
+        return copy.deepcopy(_EMPTY_STATE)
+
+
+def _has_recoverable_state(state: dict) -> bool:
+    """Return True if any flat backup key is non-empty — used by migration shim."""
+    if any(state.get(k) for k in _BACKUP_DICT_KEYS):
+        return True
+    if any(state.get(k) for k in _BACKUP_LIST_KEYS):
+        return True
+    return False
+
+
+def _snapshot_from_flat(state: dict, ts: float) -> dict:
+    """Build a backup_history entry from the flat top-level keys in *state*."""
+    snapshot = {"ts": ts}
+    for key in _BACKUP_DICT_KEYS:
+        snapshot[key] = dict(state.get(key) or {})
+    for key in _BACKUP_LIST_KEYS:
+        snapshot[key] = list(state.get(key) or [])
+    return snapshot
 
 
 def clear() -> None:
@@ -129,25 +165,13 @@ def check_and_heal() -> bool:
     return True
 
 
-def restore_all(state: dict | None = None) -> None:
+def _restore_entry(entry: dict) -> None:
     """
-    Attempt to undo all recorded optimisations stored in *state*.
-
-    This is intentionally best-effort: individual restore helpers are wrapped
-    in try/except so that a failure in one step does not prevent the others
-    from running.
-
-    Concrete restoration logic lives in the individual optimizer modules;
-    this function provides a central orchestration point and imports lazily to
-    avoid circular imports.
+    Replay a single backup_history snapshot.  Best-effort: each section is
+    individually try/except guarded so a failure in one does not block the
+    others.
     """
-    if state is None:
-        state = load_state()
-
-    logger.info("restore_all: beginning system restore …")
-
-    # DNS restore
-    dns_backup = state.get("dns_backup") or {}
+    dns_backup = entry.get("dns_backup") or {}
     if dns_backup:
         try:
             from core import dns_optimizer  # type: ignore[import]
@@ -156,8 +180,7 @@ def restore_all(state: dict | None = None) -> None:
         except Exception as exc:
             logger.error("restore_all: DNS restore failed: %s", exc)
 
-    # TCP restore
-    tcp_backup = state.get("tcp_backup") or {}
+    tcp_backup = entry.get("tcp_backup") or {}
     if tcp_backup:
         try:
             from core import tcp_optimizer  # type: ignore[import]
@@ -166,8 +189,7 @@ def restore_all(state: dict | None = None) -> None:
         except Exception as exc:
             logger.error("restore_all: TCP restore failed: %s", exc)
 
-    # Resume paused Windows services
-    paused_services: list = state.get("paused_services") or []
+    paused_services: list = entry.get("paused_services") or []
     if paused_services:
         try:
             from core import background_killer  # type: ignore[import]
@@ -177,19 +199,16 @@ def restore_all(state: dict | None = None) -> None:
         except Exception as exc:
             logger.error("restore_all: Service resume failed: %s", exc)
 
-    # Resume suspended processes
-    suspended_pids: list = state.get("suspended_pids") or []
-    if suspended_pids:
-        for pid in suspended_pids:
-            try:
-                proc = psutil.Process(pid)
-                proc.resume()
-                logger.info("restore_all: Resumed PID %d.", pid)
-            except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
-                logger.warning("restore_all: Could not resume PID %d: %s", pid, exc)
+    suspended_pids: list = entry.get("suspended_pids") or []
+    for pid in suspended_pids:
+        try:
+            proc = psutil.Process(pid)
+            proc.resume()
+            logger.info("restore_all: Resumed PID %d.", pid)
+        except (psutil.NoSuchProcess, psutil.AccessDenied) as exc:
+            logger.warning("restore_all: Could not resume PID %d: %s", pid, exc)
 
-    # Remove QoS policies
-    qos_policies: list = state.get("qos_policies") or []
+    qos_policies: list = entry.get("qos_policies") or []
     if qos_policies:
         try:
             from core import bandwidth_manager  # type: ignore[import]
@@ -199,8 +218,7 @@ def restore_all(state: dict | None = None) -> None:
         except Exception as exc:
             logger.error("restore_all: QoS restore failed: %s", exc)
 
-    # Wi-Fi restore
-    wifi_backup = state.get("wifi_backup") or {}
+    wifi_backup = entry.get("wifi_backup") or {}
     if wifi_backup:
         try:
             from core import wifi_optimizer  # type: ignore[import]
@@ -209,8 +227,7 @@ def restore_all(state: dict | None = None) -> None:
         except Exception as exc:
             logger.error("restore_all: Wi-Fi restore failed: %s", exc)
 
-    # NVIDIA restore
-    nvidia_backup = state.get("nvidia_backup") or {}
+    nvidia_backup = entry.get("nvidia_backup") or {}
     if nvidia_backup:
         try:
             from core import nvidia_optimizer  # type: ignore[import]
@@ -219,8 +236,7 @@ def restore_all(state: dict | None = None) -> None:
         except Exception as exc:
             logger.error("restore_all: NVIDIA restore failed: %s", exc)
 
-    # FPS / system tweaks restore
-    fps_backup = state.get("fps_backup") or {}
+    fps_backup = entry.get("fps_backup") or {}
     if fps_backup:
         try:
             from core import fps_booster  # type: ignore[import]
@@ -228,6 +244,31 @@ def restore_all(state: dict | None = None) -> None:
             logger.info("restore_all: FPS tweaks restored.")
         except Exception as exc:
             logger.error("restore_all: FPS restore failed: %s", exc)
+
+
+def restore_all(state: dict | None = None) -> None:
+    """
+    Walk backup_history newest → oldest and replay every recorded snapshot.
+
+    Each per-section restore is wrapped in try/except so a single failure
+    cannot block the rest.  Restoring the same service or PID across multiple
+    entries is safe — resume is idempotent and missing services/pids are
+    swallowed by the per-section restore code.
+
+    The persisted state file is cleared after the walk completes.
+    """
+    if state is None:
+        state = load_state()
+
+    history = list(state.get("backup_history") or [])
+    if not history:
+        logger.info("restore_all: no backup_history; nothing to restore.")
+        clear()
+        return
+
+    logger.info("restore_all: beginning system restore over %d snapshot(s) …", len(history))
+    for entry in reversed(history):
+        _restore_entry(entry)
 
     clear()
     logger.info("restore_all: complete.")
@@ -238,85 +279,130 @@ def restore_all(state: dict | None = None) -> None:
 # ---------------------------------------------------------------------------
 
 def _mutate(key: str, value) -> None:
-    """Load current state, update *key* with *value*, and save."""
+    """
+    Load current state, update *key* with *value*, and save.
+
+    For cumulative list keys (paused_services / suspended_pids / qos_policies),
+    also mirror the updated list into the latest backup_history entry so that
+    restore_all sees the same data when walking history.
+    """
     state = load_state()
     state[key] = value
     state["pid"] = os.getpid()
+
+    if key in _BACKUP_LIST_KEYS:
+        history = state.get("backup_history") or []
+        if not history:
+            history = [_snapshot_from_flat(state, ts=time.time())]
+            state["backup_history"] = history
+        else:
+            history[-1][key] = list(value) if isinstance(value, list) else value
+
+    save_state(state)
+
+
+def _mutate_backup_dict(key: str, value: dict) -> None:
+    """
+    Branch-aware mutator for the dict-replacing backup keys.
+
+    A new backup_history entry is appended only when the previous mirrored
+    value for *key* is non-empty AND different from *value* — that is exactly
+    the case where overwriting in place would lose a real prior backup.
+    Otherwise the latest entry is updated in place.  History is capped at
+    `_BACKUP_HISTORY_CAP` entries, dropping the oldest.
+    """
+    state = load_state()
+    state["pid"] = os.getpid()
+
+    history: list = state.setdefault("backup_history", [])
+
+    if not history:
+        # First record under this PID — seed an entry from the current flat keys
+        # so any pre-existing list state (paused_services, etc.) is captured.
+        seed = _snapshot_from_flat(state, ts=time.time())
+        seed[key] = dict(value)
+        history.append(seed)
+    else:
+        latest = history[-1]
+        prev_value = latest.get(key) or {}
+        if prev_value and prev_value != value:
+            new_entry = {k: (dict(v) if isinstance(v, dict) else list(v))
+                         for k, v in latest.items() if k != "ts"}
+            new_entry["ts"] = time.time()
+            new_entry[key] = dict(value)
+            history.append(new_entry)
+        else:
+            latest[key] = dict(value)
+            latest["ts"] = time.time()
+
+    if len(history) > _BACKUP_HISTORY_CAP:
+        del history[: len(history) - _BACKUP_HISTORY_CAP]
+
+    state[key] = value  # mirror to flat top-level for backwards compatibility
     save_state(state)
 
 
 def record_dns_backup(backup: dict) -> None:
     """Store the pre-optimisation DNS configuration for later restoration."""
-    _mutate("dns_backup", backup)
+    _mutate_backup_dict("dns_backup", backup)
 
 
 def record_tcp_backup(backup: dict) -> None:
     """Store the pre-optimisation TCP registry values."""
-    _mutate("tcp_backup", backup)
+    _mutate_backup_dict("tcp_backup", backup)
 
 
 def record_wifi_backup(backup: dict) -> None:
     """Store the pre-optimisation Wi-Fi adapter settings."""
-    _mutate("wifi_backup", backup)
+    _mutate_backup_dict("wifi_backup", backup)
 
 
 def record_nvidia_backup(backup: dict) -> None:
     """Store the pre-optimisation NVIDIA driver settings."""
-    _mutate("nvidia_backup", backup)
+    _mutate_backup_dict("nvidia_backup", backup)
 
 
 def record_fps_backup(backup: dict) -> None:
     """Store the pre-optimisation FPS/system tweak values."""
-    _mutate("fps_backup", backup)
+    _mutate_backup_dict("fps_backup", backup)
 
 
 def add_paused_service(name: str) -> None:
     """Register a Windows service that has been paused by NetBoost."""
-    state = load_state()
-    services: list = state.get("paused_services") or []
+    services = list(load_state().get("paused_services") or [])
     if name not in services:
         services.append(name)
-    state["paused_services"] = services
-    state["pid"] = os.getpid()
-    save_state(state)
+    _mutate("paused_services", services)
 
 
 def remove_paused_service(name: str) -> None:
     """Deregister a Windows service after it has been successfully resumed."""
-    state = load_state()
-    services: list = state.get("paused_services") or []
-    state["paused_services"] = [s for s in services if s != name]
-    save_state(state)
+    services = list(load_state().get("paused_services") or [])
+    services = [s for s in services if s != name]
+    _mutate("paused_services", services)
 
 
 def add_suspended_pid(pid: int) -> None:
     """Register a process PID that has been suspended by NetBoost."""
-    state = load_state()
-    pids: list = state.get("suspended_pids") or []
+    pids = list(load_state().get("suspended_pids") or [])
     if pid not in pids:
         pids.append(pid)
-    state["suspended_pids"] = pids
-    state["pid"] = os.getpid()
-    save_state(state)
+    _mutate("suspended_pids", pids)
 
 
 def remove_suspended_pid(pid: int) -> None:
     """Deregister a process PID after it has been successfully resumed."""
-    state = load_state()
-    pids: list = state.get("suspended_pids") or []
-    state["suspended_pids"] = [p for p in pids if p != pid]
-    save_state(state)
+    pids = list(load_state().get("suspended_pids") or [])
+    pids = [p for p in pids if p != pid]
+    _mutate("suspended_pids", pids)
 
 
 def add_qos_policy(name: str) -> None:
     """Register a QoS policy that has been created by NetBoost."""
-    state = load_state()
-    policies: list = state.get("qos_policies") or []
+    policies = list(load_state().get("qos_policies") or [])
     if name not in policies:
         policies.append(name)
-    state["qos_policies"] = policies
-    state["pid"] = os.getpid()
-    save_state(state)
+    _mutate("qos_policies", policies)
 
 
 def get_state() -> dict:

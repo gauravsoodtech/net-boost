@@ -26,6 +26,23 @@ class TestStateGuard:
         from core.state_guard import StateGuard
         return StateGuard()
 
+    @pytest.fixture
+    def clean_guard(self):
+        """
+        StateGuard that wipes %APPDATA%\\NetBoost\\state.json before AND after
+        the test so backup_history assertions are not polluted by prior runs.
+        """
+        from core.state_guard import StateGuard, _STATE_DIR, _STATE_FILE
+        os.makedirs(_STATE_DIR, exist_ok=True)
+        if os.path.exists(_STATE_FILE):
+            os.remove(_STATE_FILE)
+        g = StateGuard()
+        yield g
+        try:
+            os.remove(_STATE_FILE)
+        except FileNotFoundError:
+            pass
+
     def test_initial_state_empty(self, guard):
         """Fresh StateGuard has empty state."""
         state = guard.get_state()
@@ -187,3 +204,102 @@ class TestStateGuard:
                 guard.restore_all()
             except Exception as e:
                 pytest.fail(f"restore_all() raised unexpectedly: {e}")
+
+    # --- backup_history (Phase D) ---
+    #
+    # The clean_guard fixture deletes %APPDATA%\NetBoost\state.json before AND
+    # after each test so leakage between runs cannot pollute history asserts.
+
+    def test_branching_apply_records_two_history_entries(self, clean_guard):
+        """A second non-equal record_*_backup under the same PID branches history."""
+        clean_guard.record_dns_backup({"adapter": "Wi-Fi", "primary": "8.8.8.8"})
+        clean_guard.record_dns_backup({"adapter": "Wi-Fi", "primary": "1.1.1.1"})
+
+        history = clean_guard.get_state()["backup_history"]
+        assert len(history) == 2
+        assert history[0]["dns_backup"]["primary"] == "8.8.8.8"
+        assert history[1]["dns_backup"]["primary"] == "1.1.1.1"
+
+    def test_repeated_identical_record_does_not_duplicate_history(self, clean_guard):
+        """Recording the same backup twice should overwrite latest, not branch."""
+        backup = {"adapter": "Wi-Fi", "primary": "8.8.8.8"}
+        clean_guard.record_dns_backup(backup)
+        clean_guard.record_dns_backup(backup)
+
+        assert len(clean_guard.get_state()["backup_history"]) == 1
+
+    def test_history_caps_at_five(self, clean_guard):
+        """Append more than 5 distinct entries — oldest must be dropped."""
+        for i in range(7):
+            clean_guard.record_dns_backup({"primary": f"10.0.0.{i}"})
+
+        history = clean_guard.get_state()["backup_history"]
+        assert len(history) == 5
+        # Oldest two (10.0.0.0, 10.0.0.1) dropped — newest five remain.
+        primaries = [e["dns_backup"]["primary"] for e in history]
+        assert primaries == [f"10.0.0.{i}" for i in range(2, 7)]
+
+    def test_restore_all_walks_history_newest_to_oldest(self, clean_guard):
+        """restore_all should call dns_optimizer.restore once per history entry."""
+        clean_guard.record_dns_backup({"primary": "a"})
+        clean_guard.record_dns_backup({"primary": "b"})
+        clean_guard.record_dns_backup({"primary": "c"})
+
+        with patch("core.dns_optimizer.restore") as mock_restore:
+            clean_guard.restore_all()
+
+        called = [c.args[0]["primary"] for c in mock_restore.call_args_list]
+        assert called == ["c", "b", "a"]  # newest first
+
+    def test_restore_all_clears_state_after_success(self, clean_guard):
+        """restore_all must remove state.json once the walk finishes."""
+        import pathlib
+        from core.state_guard import _STATE_FILE
+        state_path = pathlib.Path(_STATE_FILE)
+
+        clean_guard.record_dns_backup({"primary": "8.8.8.8"})
+        assert state_path.exists()
+
+        with patch("core.dns_optimizer.restore"):
+            clean_guard.restore_all()
+
+        assert not state_path.exists()
+
+    def test_legacy_state_file_migrates_into_history(self, clean_guard):
+        """A pre-Phase-D state.json (no backup_history) should heal correctly."""
+        import pathlib
+        from core.state_guard import _STATE_FILE, _STATE_DIR
+        pathlib.Path(_STATE_DIR).mkdir(parents=True, exist_ok=True)
+        state_path = pathlib.Path(_STATE_FILE)
+
+        legacy = {
+            "pid": os.getpid(),
+            "dns_backup": {"adapter": "Wi-Fi", "primary": "8.8.8.8"},
+            "tcp_backup": {},
+            "paused_services": ["wuauserv"],
+            "suspended_pids": [],
+            "qos_policies": [],
+            "wifi_backup": {},
+            "nvidia_backup": {},
+            "fps_backup": {},
+            # NOTE: no "backup_history" — legacy format
+        }
+        state_path.write_text(json.dumps(legacy))
+
+        loaded = clean_guard.load_state()
+
+        assert len(loaded["backup_history"]) == 1
+        entry = loaded["backup_history"][0]
+        assert entry["dns_backup"]["primary"] == "8.8.8.8"
+        assert entry["paused_services"] == ["wuauserv"]
+        assert loaded["dns_backup"]["primary"] == "8.8.8.8"
+
+    def test_add_paused_service_mirrored_into_latest_history_entry(self, clean_guard):
+        """List-mutators must keep the latest history entry in sync."""
+        clean_guard.record_dns_backup({"primary": "8.8.8.8"})
+        clean_guard.add_paused_service("wuauserv")
+        clean_guard.add_paused_service("BITS")
+
+        history = clean_guard.get_state()["backup_history"]
+        assert "wuauserv" in history[-1]["paused_services"]
+        assert "BITS" in history[-1]["paused_services"]
