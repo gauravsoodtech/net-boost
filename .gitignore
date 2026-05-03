@@ -45,6 +45,9 @@ desktop.ini
 .coverage
 htmlcov/
 
+# Local Playwright artifact dir (browser automation outputs)
+.playwright-cli/
+
 # Secrets / local config
 *.env
 .env

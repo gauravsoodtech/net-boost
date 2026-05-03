@@ -126,6 +126,20 @@ python tests/integration_check.py
 
 Test files mock subprocess and registry calls — never require real hardware.
 
+### Coverage gate
+
+`pytest.ini` enforces `--cov=core --cov-fail-under=55` on every run. Before
+claiming any task complete, confirm the gate is green:
+
+```powershell
+python -m pytest tests/ --cov=core --cov-report=term-missing
+```
+
+Target 75%+ before merging large changes; 95%+ for any new core module. Mock
+`subprocess`, `winreg`, `psutil`, `win32service`, and `ctypes.windll.kernel32`
+— never require real hardware. The `tests/conftest.py:qt_app` session fixture
+provides a shared `QApplication` for tests that touch Qt widgets.
+
 ---
 
 ## Dependencies
