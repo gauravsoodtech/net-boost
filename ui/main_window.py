@@ -384,18 +384,42 @@ class MainWindow(QMainWindow):
         diffs = [abs(readings[i] - readings[i-1]) for i in range(1, len(readings))]
         return sum(diffs) / len(diffs)
 
-    # ------------------------------------------------------------------ Game detection
+    def _find_running_game_for_mode(self) -> str | None:
+        """Return a currently running watched game, prioritizing stable-ping games."""
+        from core.stable_ping_policy import is_stable_ping_game
 
-    @pyqtSlot(str)
-    def on_game_launched(self, exe_name: str):
-        logger.info(f"Game launched: {exe_name}")
+        running: list[str] = []
+        if self.process_watcher:
+            try:
+                running = list(self.process_watcher.get_running_games())
+            except Exception as exc:
+                logger.warning("ProcessWatcher running-game query failed: %s", exc)
+
+        if not running:
+            try:
+                import psutil
+                running = [
+                    proc.info["name"]
+                    for proc in psutil.process_iter(["name"])
+                    if proc.info.get("name") and is_stable_ping_game(proc.info["name"])
+                ]
+            except Exception as exc:
+                logger.warning("Running game process scan failed: %s", exc)
+                running = []
+
+        for exe_name in running:
+            if is_stable_ping_game(exe_name):
+                return exe_name
+        return running[0] if running else None
+
+    def _mark_game_detected(self, exe_name: str) -> None:
+        """Update UI state for a detected game and locate its PID for route analysis."""
         self._current_game = exe_name
         self.tab_dashboard.set_game_detected(exe_name)
         if self.tray:
             self.tray.set_game_detected(exe_name)
         self._set_status(f"Game detected: {exe_name}")
 
-        # Route Analyzer — find PID so tab can scan live connections
         self._current_game_pid = 0
         try:
             import psutil
@@ -404,8 +428,39 @@ class MainWindow(QMainWindow):
                     self._current_game_pid = proc.info["pid"]
                     break
         except Exception as exc:
-            logger.warning("on_game_launched: PID lookup failed for '%s': %s", exe_name, exc)
+            logger.warning("PID lookup failed for '%s': %s", exe_name, exc)
         self.tab_route.on_game_detected(exe_name, self._current_game_pid)
+
+    def _wifi_apply_outcome(self, backup: dict) -> tuple[bool, str]:
+        """Return (usable, message) from Wi-Fi apply verification metadata."""
+        if not backup.get("_adapter_found", True):
+            return False, (
+                "Wi-Fi adapter key not found - LSO may still be active. "
+                "Run as admin and confirm the adapter is supported."
+            )
+
+        has_metadata = "_write_count" in backup or "_verified_count" in backup
+        if not has_metadata:
+            return True, ""
+
+        attempted = int(backup.get("_write_count") or len(backup.get("_attempted_values") or []))
+        verified = int(backup.get("_verified_count") or len(backup.get("_verified_values") or []))
+        failed = int(backup.get("_failed_count") or len(backup.get("_failed_values") or []))
+
+        if attempted <= 0:
+            return False, "No Wi-Fi tweaks were attempted."
+        if verified <= 0:
+            return False, "Wi-Fi tweaks were attempted but none were confirmed by readback."
+        if failed:
+            return True, f"Wi-Fi partially applied: {verified}/{attempted} values confirmed."
+        return True, ""
+
+    # ------------------------------------------------------------------ Game detection
+
+    @pyqtSlot(str)
+    def on_game_launched(self, exe_name: str):
+        logger.info(f"Game launched: {exe_name}")
+        self._mark_game_detected(exe_name)
 
         if self._game_mode_active:
             self._activate_game_mode(exe_name)
@@ -460,7 +515,10 @@ class MainWindow(QMainWindow):
         self._game_mode_active = enabled
         if enabled:
             self._set_status("Game Mode activated")
-            self._activate_game_mode(self._current_game)
+            exe_name = self._current_game or self._find_running_game_for_mode()
+            if exe_name and exe_name != self._current_game:
+                self._mark_game_detected(exe_name)
+            self._activate_game_mode(exe_name)
         else:
             self._set_status("Game Mode deactivated")
             self._deactivate_game_mode()
@@ -488,14 +546,23 @@ class MainWindow(QMainWindow):
 
         any_succeeded = False
         failed_sections = []
+        warning_messages = []
 
         if "wifi" in plan:
             try:
                 wifi_settings = plan["wifi"]
-                self._apply_wifi(wifi_settings)
-                self._applied_settings["wifi"] = wifi_settings
-                self.tab_wifi.mark_applied(wifi_settings)
-                any_succeeded = True
+                backup = self._apply_wifi(wifi_settings)
+                wifi_succeeded, wifi_message = self._wifi_apply_outcome(backup)
+                if wifi_succeeded:
+                    self._applied_settings["wifi"] = wifi_settings
+                    self.tab_wifi.mark_applied(wifi_settings)
+                    any_succeeded = True
+                    if wifi_message:
+                        warning_messages.append(wifi_message)
+                else:
+                    failed_sections.append("Wi-Fi")
+                    if wifi_message:
+                        warning_messages.append(wifi_message)
             except Exception as e:
                 logger.warning(f"Wi-Fi game mode apply failed: {e}")
                 failed_sections.append("Wi-Fi")
@@ -531,7 +598,13 @@ class MainWindow(QMainWindow):
             self._gpu_temp_timer.start()
 
         if failed_sections:
-            msg = f"Game Mode: partial — {', '.join(failed_sections)} failed"
+            detail = f": {warning_messages[0]}" if warning_messages else ""
+            msg = f"Game Mode: {', '.join(failed_sections)} failed{detail}"
+            self._set_status(msg)
+            self._toast.show_message(msg, "warning")
+        elif warning_messages:
+            msg = warning_messages[0]
+            self._set_status(msg)
             self._toast.show_message(msg, "warning")
         elif is_stable_ping_game(exe_name):
             self._set_status("VALORANT Stable Ping profile active")
@@ -568,10 +641,19 @@ class MainWindow(QMainWindow):
                 return
         try:
             backup = self._apply_wifi(settings)
+            wifi_succeeded, wifi_message = self._wifi_apply_outcome(backup)
+            if not wifi_succeeded:
+                self.tab_wifi.show_apply_error()
+                self._set_status(wifi_message)
+                self._toast.show_message(wifi_message, "warning", duration_ms=8000)
+                return
             self.tab_wifi.set_settings(settings)
             self.tab_wifi.mark_applied(settings)
             self.tab_wifi.show_apply_success()
             self._toast.show_message("Wi-Fi optimizations applied", "success")
+            if wifi_message:
+                self._set_status(wifi_message)
+                self._toast.show_message(wifi_message, "warning", duration_ms=8000)
             self._applied_settings["wifi"] = settings
             self.tab_monitor.update_applied_settings(self._applied_settings)
             if not backup.get("_adapter_found", True):
@@ -592,7 +674,8 @@ class MainWindow(QMainWindow):
             if self._wifi_optimizer is None:
                 self._wifi_optimizer = WifiOptimizer()
             backup = self._wifi_optimizer.apply(settings)
-            if self.state_guard:
+            has_restore_values = any(not key.startswith("_") for key in backup)
+            if self.state_guard and backup.get("_adapter_found", True) and has_restore_values:
                 self.state_guard.record_wifi_backup(backup)
             self._set_status("Wi-Fi optimizations applied")
             return backup

@@ -12,10 +12,15 @@ def test_apply_writes_current_intel_ax211_driver_keywords(monkeypatch):
 
     monkeypatch.setattr(wifi_optimizer, "get_wifi_adapter_key", lambda: "adapter-key")
     monkeypatch.setattr(wifi_optimizer, "_read_reg", lambda subkey, value: reads.get(value))
+
+    def write_reg(subkey, value, new_value):
+        writes.append((subkey, value, new_value))
+        reads[value] = new_value
+
     monkeypatch.setattr(
         wifi_optimizer,
         "_write_reg",
-        lambda subkey, value, new_value: writes.append((subkey, value, new_value)),
+        write_reg,
     )
 
     backup = wifi_optimizer.apply(
@@ -41,6 +46,9 @@ def test_apply_writes_current_intel_ax211_driver_keywords(monkeypatch):
     assert ("adapter-key", "*LsoV2IPv6", 0) in writes
     assert ("adapter-key", "InterruptModeration", 0) in writes
     assert backup["_adapter_found"] is True
+    assert backup["_write_count"] == len(writes)
+    assert backup["_verified_count"] == len(writes)
+    assert backup["_failed_values"] == []
 
 
 def test_apply_keeps_legacy_keyword_fallbacks_for_older_drivers(monkeypatch):
@@ -104,3 +112,54 @@ def test_get_current_band_prefers_current_intel_driver_keyword(monkeypatch):
     monkeypatch.setattr(wifi_optimizer, "_read_reg", lambda subkey, value: values.get(value))
 
     assert wifi_optimizer.get_current_band() == "5GHz + 6GHz"
+
+
+def test_apply_reports_adapter_not_found(monkeypatch):
+    monkeypatch.setattr(wifi_optimizer, "get_wifi_adapter_key", lambda: None)
+
+    backup = wifi_optimizer.apply({"disable_lso": True})
+
+    assert backup["_adapter_found"] is False
+    assert backup["_write_count"] == 0
+    assert backup["_verified_count"] == 0
+    assert backup["_failed_values"] == []
+
+
+def test_apply_reports_readback_mismatch(monkeypatch):
+    writes = []
+
+    monkeypatch.setattr(wifi_optimizer, "get_wifi_adapter_key", lambda: "adapter-key")
+    monkeypatch.setattr(wifi_optimizer, "_read_reg", lambda subkey, value: 1)
+    monkeypatch.setattr(
+        wifi_optimizer,
+        "_write_reg",
+        lambda subkey, value, new_value: writes.append((value, new_value)),
+    )
+
+    backup = wifi_optimizer.apply({"disable_power_saving": True})
+
+    assert writes == [("PowerSavingMode", 0)]
+    assert backup["_write_count"] == 1
+    assert backup["_verified_count"] == 0
+    assert backup["_failed_count"] == 1
+    assert backup["_failed_values"][0]["name"] == "PowerSavingMode"
+    assert backup["_failed_values"][0]["reason"] == "readback mismatch"
+
+
+def test_apply_reports_unsupported_preferred_band(monkeypatch):
+    writes = []
+
+    monkeypatch.setattr(wifi_optimizer, "get_wifi_adapter_key", lambda: "adapter-key")
+    monkeypatch.setattr(wifi_optimizer, "_read_reg", lambda subkey, value: None)
+    monkeypatch.setattr(
+        wifi_optimizer,
+        "_write_reg",
+        lambda subkey, value, new_value: writes.append((value, new_value)),
+    )
+
+    backup = wifi_optimizer.apply({"prefer_6ghz": True})
+
+    assert writes == []
+    assert backup["_6ghz_unsupported"] is True
+    assert backup["_unsupported_values"] == ["RoamingPreferredBandType", "PreferredBand"]
+    assert backup["_write_count"] == 0

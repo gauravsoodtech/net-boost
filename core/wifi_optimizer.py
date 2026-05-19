@@ -36,6 +36,28 @@ _LEGACY_BAND_MAP = {
 }
 
 
+def _new_apply_metadata(adapter_found: bool) -> dict:
+    """Return diagnostic fields stored alongside the restore backup."""
+    return {
+        "_adapter_found": adapter_found,
+        "_attempted_values": [],
+        "_verified_values": [],
+        "_failed_values": [],
+        "_unsupported_values": [],
+        "_write_count": 0,
+        "_verified_count": 0,
+        "_failed_count": 0,
+    }
+
+
+def _values_match(actual, expected: int) -> bool:
+    """Return True when a read-back registry value matches the requested int."""
+    try:
+        return int(actual) == int(expected)
+    except (TypeError, ValueError):
+        return False
+
+
 # ---------------------------------------------------------------------------
 # Internal registry helpers
 # ---------------------------------------------------------------------------
@@ -171,12 +193,13 @@ def apply(settings: dict) -> dict:
     - ``disable_interrupt_mod`` — InterruptModeration=0 (every packet interrupts CPU immediately)
 
     Returns a *backup* dict of original values suitable for :func:`restore`.
+    Diagnostic keys prefixed with ``_`` describe attempted, verified, failed,
+    and unsupported driver values.
     """
-    backup: dict = {}
+    backup: dict = _new_apply_metadata(adapter_found=False)
     adapter_key = get_wifi_adapter_key()
     if adapter_key is None:
         logger.warning("wifi_optimizer: apply() skipped — no adapter key.")
-        backup["_adapter_found"] = False
         return backup
 
     tweaks: list[tuple[str, int]] = []
@@ -203,6 +226,7 @@ def apply(settings: dict) -> dict:
                 "6GHz preference skipped (adapter may not support WiFi 6E)."
             )
             backup["_6ghz_unsupported"] = True
+            backup["_unsupported_values"].extend(["RoamingPreferredBandType", "PreferredBand"])
     if "throughput_booster" in settings:
         throughput_value = 1 if settings.get("throughput_booster") else 0
         tweaks.append(("ThroughputBoosterEnabled", throughput_value))
@@ -224,13 +248,34 @@ def apply(settings: dict) -> dict:
 
     for value_name, new_val in tweaks:
         backup[value_name] = _read_reg(adapter_key, value_name)
+        backup["_attempted_values"].append(value_name)
+        backup["_write_count"] += 1
         try:
             _write_reg(adapter_key, value_name, new_val)
-        except OSError:
-            pass  # already logged inside _write_reg
+        except OSError as exc:
+            backup["_failed_values"].append({
+                "name": value_name,
+                "target": new_val,
+                "actual": backup[value_name],
+                "reason": f"write failed: {exc}",
+            })
+            continue
+
+        actual = _read_reg(adapter_key, value_name)
+        if _values_match(actual, new_val):
+            backup["_verified_values"].append(value_name)
+            backup["_verified_count"] += 1
+        else:
+            backup["_failed_values"].append({
+                "name": value_name,
+                "target": new_val,
+                "actual": actual,
+                "reason": "readback mismatch",
+            })
 
     backup["_adapter_key"] = adapter_key
     backup["_adapter_found"] = True
+    backup["_failed_count"] = len(backup["_failed_values"])
     logger.info("wifi_optimizer: %d tweak(s) applied.", len(tweaks))
     return backup
 
