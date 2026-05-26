@@ -157,6 +157,13 @@ def _build_valorant_stable_ping_profile() -> dict:
     return p
 
 
+def _build_cs2_stable_ping_profile() -> dict:
+    p = _build_gaming_profile()
+    p["name"] = "CS2 Stable Ping"
+    p["game_list"] = ["cs2.exe"]
+    return p
+
+
 def _build_work_profile() -> dict:
     p = _empty_profile("Work")
     p["dns"].update({"switch_dns": True, "dns_provider": "Google 8.8.8.8", "dns_primary": "8.8.8.8", "dns_secondary": "8.8.4.4"})
@@ -199,6 +206,7 @@ def _build_default_profile() -> dict:
 _BUILTIN_PROFILES = {
     "Gaming": _build_gaming_profile,
     "VALORANT Stable Ping": _build_valorant_stable_ping_profile,
+    "CS2 Stable Ping": _build_cs2_stable_ping_profile,
     "Work": _build_work_profile,
     "Default": _build_default_profile,
 }

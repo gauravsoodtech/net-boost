@@ -56,8 +56,9 @@ class TabSettings(QWidget):
     game_list_changed(list)      — emitted when the game exe list changes
     """
 
-    settings_changed   = pyqtSignal(dict)
-    game_list_changed  = pyqtSignal(list)
+    settings_changed       = pyqtSignal(dict)
+    game_list_changed      = pyqtSignal(list)
+    cs2_autoexec_requested = pyqtSignal()
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -165,6 +166,39 @@ class TabSettings(QWidget):
 
         layout.addWidget(games_group)
 
+        # ── Game Tools ────────────────────────────────────────────────────────
+        tools_group = QGroupBox("Game Tools")
+        tools_layout = QVBoxLayout(tools_group)
+        tools_layout.setSpacing(8)
+
+        tools_header = QLabel("CS2 Autoexec")
+        tools_header.setStyleSheet("font-weight: 600;")
+        tools_layout.addWidget(tools_header)
+
+        tools_help = QLabel(
+            "Writes a recommended autoexec.cfg into your CS2 install with bandwidth\n"
+            "headroom, a 50 ms matchmaking cap, and Steam Datagram Relay enabled.\n"
+            "If a file is already present it is backed up with a timestamp suffix."
+        )
+        tools_help.setWordWrap(True)
+        tools_help.setStyleSheet("color: #9e9e9e;")
+        tools_layout.addWidget(tools_help)
+
+        self._cs2_status_lbl = QLabel("CS2 status: not checked yet.")
+        self._cs2_status_lbl.setWordWrap(True)
+        self._cs2_status_lbl.setStyleSheet("color: #c0c0c0;")
+        tools_layout.addWidget(self._cs2_status_lbl)
+
+        cs2_btn_row = QHBoxLayout()
+        cs2_btn_row.addStretch()
+        self._cs2_autoexec_btn = QPushButton("Write Recommended autoexec.cfg")
+        self._cs2_autoexec_btn.setObjectName("successButton")
+        self._cs2_autoexec_btn.clicked.connect(self.cs2_autoexec_requested)
+        cs2_btn_row.addWidget(self._cs2_autoexec_btn)
+        tools_layout.addLayout(cs2_btn_row)
+
+        layout.addWidget(tools_group)
+
         # ── About ─────────────────────────────────────────────────────────────
         about_group = QGroupBox("About")
         about_layout = QVBoxLayout(about_group)
@@ -270,3 +304,9 @@ class TabSettings(QWidget):
             self._games_list.item(i).text()
             for i in range(self._games_list.count())
         ]
+
+    def set_cs2_status(self, text: str, *, ok: bool = True) -> None:
+        """Update the CS2 status line above the autoexec button."""
+        self._cs2_status_lbl.setText(text)
+        colour = "#4caf50" if ok else "#ff9800"
+        self._cs2_status_lbl.setStyleSheet(f"color: {colour};")

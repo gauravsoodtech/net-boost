@@ -11,6 +11,15 @@ from __future__ import annotations
 
 STABLE_PING_GAME_EXES = frozenset({
     "valorant-win64-shipping.exe",
+    "cs2.exe",
+})
+
+# Games that additionally benefit from a per-app DSCP EF (46) QoS policy on
+# their executable. Valorant is intentionally excluded — Vanguard's kernel
+# driver interferes with QoS hooks and the user does not want NetBoost to
+# touch its network surface.  CS2 has no such constraint and is pure UDP.
+DSCP_GAME_EXES = frozenset({
+    "cs2.exe",
 })
 
 WIFI_SETTING_KEYS = (
@@ -40,6 +49,13 @@ def is_stable_ping_game(exe_name: str | None) -> bool:
     return exe_name.lower() in STABLE_PING_GAME_EXES
 
 
+def is_dscp_game(exe_name: str | None) -> bool:
+    """Return True when *exe_name* should receive an auto DSCP policy."""
+    if not exe_name:
+        return False
+    return exe_name.lower() in DSCP_GAME_EXES
+
+
 def stable_ping_wifi_settings() -> dict[str, bool]:
     """Return the conservative Wi-Fi settings used by Stable Ping Mode."""
     return {
@@ -62,7 +78,10 @@ def build_game_mode_plan(
     legacy configured-tab behavior for compatibility.
     """
     if is_stable_ping_game(exe_name):
-        return {"wifi": stable_ping_wifi_settings()}
+        plan: dict[str, dict] = {"wifi": stable_ping_wifi_settings()}
+        if is_dscp_game(exe_name):
+            plan["dscp"] = {"dscp_value": 46}
+        return plan
 
     if not exe_name:
         return {}

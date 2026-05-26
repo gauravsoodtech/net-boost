@@ -12,7 +12,7 @@ from core.stable_ping_policy import (
 def test_valorant_detection_is_case_insensitive():
     assert is_stable_ping_game("VALORANT-Win64-Shipping.exe") is True
     assert is_stable_ping_game("valorant-win64-shipping.exe") is True
-    assert is_stable_ping_game("cs2.exe") is False
+    assert is_stable_ping_game("notepad.exe") is False
     assert is_stable_ping_game(None) is False
 
 

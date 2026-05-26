@@ -35,8 +35,27 @@ class TestProfileManager:
         profiles = manager.list_profiles()
         assert "Gaming" in profiles
         assert "VALORANT Stable Ping" in profiles
+        assert "CS2 Stable Ping" in profiles
         assert "Work" in profiles
         assert "Default" in profiles
+
+    def test_cs2_stable_ping_profile_is_bound_to_cs2_exe(self, manager):
+        """CS2 Stable Ping mirrors the Valorant gaming subset but targets cs2.exe."""
+        manager.load_all()
+        profile = manager.load_profile("CS2 Stable Ping")
+        assert profile is not None
+        assert profile["name"] == "CS2 Stable Ping"
+        assert profile["game_list"] == ["cs2.exe"]
+        wifi_enabled = {
+            key for key, value in profile["wifi_optimizer"].items()
+            if value is True and key != "enabled"
+        }
+        assert wifi_enabled == {
+            "disable_lso",
+            "disable_interrupt_mod",
+            "disable_power_saving",
+            "max_tx_power",
+        }
 
     def test_load_all_adds_missing_builtins_without_overwriting_user_profiles(self, manager):
         """Existing profile folders should still receive newly-added built-ins."""

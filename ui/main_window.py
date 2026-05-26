@@ -106,6 +106,7 @@ class MainWindow(QMainWindow):
         self._game_mode_active = False
         self._game_mode_applied = False   # True only if Game Mode itself applied changes
         self._game_mode_pending = False   # latest value for debounce
+        self._game_mode_dscp_policy: str | None = None   # active CS2-class DSCP policy name
         self._auto_game_mode = False      # mirrors tab_settings auto_game_mode checkbox
         self.tray = None                  # set by main.py after TrayIcon is created
 
@@ -349,6 +350,7 @@ class MainWindow(QMainWindow):
         self.tab_profiles.profile_export_requested.connect(self._on_profile_export)
         self.tab_settings.settings_changed.connect(self._on_settings_changed)
         self.tab_settings.game_list_changed.connect(self._on_game_list_changed)
+        self.tab_settings.cs2_autoexec_requested.connect(self._on_cs2_autoexec_clicked)
         self.tab_monitor.disable_setting_requested.connect(self._on_disable_setting)
         self.tab_monitor.recommendation_action_requested.connect(self._on_recommendation_action)
         self.tab_route.server_found.connect(self._on_game_server_found)
@@ -539,7 +541,7 @@ class MainWindow(QMainWindow):
             self._game_mode_applied = False
             self._set_status("Game Mode armed - waiting for a detected game")
             self._toast.show_message(
-                "Game Mode armed - launch VALORANT to apply stable ping settings",
+                "Game Mode armed - launch VALORANT or CS2 to apply stable ping settings",
                 "info",
             )
             return
@@ -589,6 +591,13 @@ class MainWindow(QMainWindow):
                 logger.warning(f"Optimizer game mode apply failed: {e}")
                 failed_sections.append("Optimizer")
 
+        if "dscp" in plan:
+            dscp_ok = self._apply_game_mode_dscp(exe_name, plan["dscp"])
+            if dscp_ok:
+                any_succeeded = True
+            else:
+                failed_sections.append("DSCP")
+
         self._game_mode_applied = any_succeeded
         self.tab_monitor.update_applied_settings(self._applied_settings)
 
@@ -607,13 +616,25 @@ class MainWindow(QMainWindow):
             self._set_status(msg)
             self._toast.show_message(msg, "warning")
         elif is_stable_ping_game(exe_name):
-            self._set_status("VALORANT Stable Ping profile active")
-            self._toast.show_message("VALORANT Stable Ping profile applied", "success")
+            label = self._stable_ping_label(exe_name)
+            self._set_status(f"{label} Stable Ping profile active")
+            self._toast.show_message(f"{label} Stable Ping profile applied", "success")
         else:
             self._toast.show_message("Game Mode: configured profile applied", "success")
 
     def _deactivate_game_mode(self):
         """Restore settings only if Game Mode was the one that applied them."""
+        # DSCP teardown is intentional even when _game_mode_applied is False — a
+        # successful DSCP apply with a failed Wi-Fi apply would otherwise leak
+        # the QoS policy registry key past Game Mode deactivation.
+        if self._game_mode_dscp_policy:
+            try:
+                from core import bandwidth_manager
+                bandwidth_manager.remove_dscp_policy(self._game_mode_dscp_policy)
+            except Exception as e:
+                logger.warning(f"DSCP policy removal failed: {e}")
+            self._game_mode_dscp_policy = None
+
         if not self._game_mode_applied:
             logger.info("Game Mode deactivated — no Game Mode changes to restore")
             return
@@ -625,6 +646,62 @@ class MainWindow(QMainWindow):
             except Exception as e:
                 logger.error(f"restore_all failed: {e}")
         self._toast.show_message("Game Mode: settings restored", "info")
+
+    # -------------------------------------------------------- DSCP helpers
+
+    _STABLE_PING_LABELS = {
+        "valorant-win64-shipping.exe": "VALORANT",
+        "cs2.exe": "CS2",
+    }
+
+    def _stable_ping_label(self, exe_name: str | None) -> str:
+        if not exe_name:
+            return "Game"
+        return self._STABLE_PING_LABELS.get(exe_name.lower(), exe_name)
+
+    def _apply_game_mode_dscp(self, exe_name: str | None, dscp_intent: dict) -> bool:
+        """Apply a per-app DSCP QoS policy for the detected game executable.
+
+        Returns True when the policy was created and tracked, False otherwise.
+        State is recorded in StateGuard *before* the registry write so a crash
+        mid-apply still results in a cleanup on the next NetBoost launch.
+        """
+        from core import bandwidth_manager
+
+        pid = self._current_game_pid
+        if not pid:
+            logger.info("DSCP skip: no PID for detected game %s", exe_name)
+            return False
+
+        try:
+            import psutil
+            exe_path = psutil.Process(pid).exe()
+        except Exception as exc:
+            logger.warning("DSCP skip: cannot resolve exe path for pid %s: %s", pid, exc)
+            return False
+
+        if not exe_path:
+            return False
+
+        policy_name = f"NetBoost_{bandwidth_manager._sanitise_name(exe_path)}"
+        dscp_value = int(dscp_intent.get("dscp_value", 46))
+
+        if self.state_guard:
+            try:
+                self.state_guard.add_qos_policy(policy_name)
+            except Exception as exc:
+                logger.warning("DSCP state_guard record failed: %s", exc)
+
+        ok = bandwidth_manager.apply_dscp_policy(policy_name, exe_path, dscp_value)
+        if ok:
+            self._game_mode_dscp_policy = policy_name
+            logger.info("DSCP policy '%s' applied (DSCP=%d) for %s",
+                        policy_name, dscp_value, exe_path)
+            return True
+
+        logger.warning("DSCP policy '%s' failed to apply for %s (admin required?)",
+                       policy_name, exe_path)
+        return False
 
     # ------------------------------------------------------------------ Wi-Fi
 
@@ -1202,6 +1279,43 @@ class MainWindow(QMainWindow):
     def _on_game_list_changed(self, game_list: list):
         if self.process_watcher:
             self.process_watcher.set_game_list(game_list)
+
+    @pyqtSlot()
+    def _on_cs2_autoexec_clicked(self):
+        """Resolve CS2's cfg dir, confirm overwrite if needed, write autoexec."""
+        import os
+        from core import cs2_paths
+        from ui.widgets.cs2_autoexec_dialog import Cs2AutoexecDialog
+        from PyQt5.QtWidgets import QDialog
+
+        found = cs2_paths.find_cs2_install()
+        if not found:
+            self.tab_settings.set_cs2_status(
+                "CS2 status: not detected in any Steam library.", ok=False
+            )
+            self._toast.show_message(
+                "CS2 not found in any Steam library — install CS2 first.", "warning"
+            )
+            return
+
+        cfg_dir, _exe_path = found
+        existing = os.path.isfile(os.path.join(cfg_dir, "autoexec.cfg"))
+        dlg = Cs2AutoexecDialog(cfg_dir, existing_autoexec=existing, parent=self)
+        if dlg.exec_() != QDialog.Accepted:
+            self._toast.show_message("CS2 autoexec write cancelled", "info")
+            return
+
+        ok, info = cs2_paths.write_autoexec(cfg_dir, overwrite=True)
+        if ok:
+            self.tab_settings.set_cs2_status(
+                f"CS2 status: autoexec.cfg written to {cfg_dir}", ok=True
+            )
+            self._toast.show_message("CS2 autoexec.cfg written successfully.", "success")
+        else:
+            self.tab_settings.set_cs2_status(
+                f"CS2 status: write failed ({info})", ok=False
+            )
+            self._toast.show_message(f"CS2 autoexec write failed: {info}", "warning")
 
     @pyqtSlot(str)
     def _on_host_changed(self, host: str):
