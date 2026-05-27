@@ -13,9 +13,16 @@ from unittest.mock import patch, MagicMock, call
 
 
 class TestDetectHybridCpuPCoreMask:
+    """Tests for the frequency-based fallback path.
 
+    The primary detection path is ``_detect_p_cores_winapi``; these tests
+    force it to ``None`` so each case exercises the frequency comparator
+    in isolation.
+    """
+
+    @patch("core.fps_booster._detect_p_cores_winapi", return_value=None)
     @patch("core.fps_booster._read_hklm")
-    def test_uniform_frequency_returns_all_cores(self, mock_read):
+    def test_uniform_frequency_returns_all_cores(self, mock_read, mock_winapi):
         """All cores at same frequency → not hybrid → 0xFFFFFFFF."""
         # 8 cores all at 2400 MHz
         def side_effect(subkey, value_name):
@@ -28,8 +35,9 @@ class TestDetectHybridCpuPCoreMask:
         from core.fps_booster import detect_hybrid_cpu_p_core_mask
         assert detect_hybrid_cpu_p_core_mask() == 0xFFFFFFFF
 
+    @patch("core.fps_booster._detect_p_cores_winapi", return_value=None)
     @patch("core.fps_booster._read_hklm")
-    def test_mixed_frequencies_returns_p_core_mask(self, mock_read):
+    def test_mixed_frequencies_returns_p_core_mask(self, mock_read, mock_winapi):
         """P-cores at 2400, E-cores at 1800 → only P-core bits set."""
         # 4 P-cores (2400) + 4 E-cores (1800)
         freqs = [2400, 2400, 2400, 2400, 1800, 1800, 1800, 1800]
@@ -46,16 +54,18 @@ class TestDetectHybridCpuPCoreMask:
         # P-cores are indices 0-3 → mask = 0b00001111 = 0x0F
         assert mask == 0x0F
 
+    @patch("core.fps_booster._detect_p_cores_winapi", return_value=None)
     @patch("core.fps_booster._read_hklm")
-    def test_registry_failure_returns_all_cores(self, mock_read):
+    def test_registry_failure_returns_all_cores(self, mock_read, mock_winapi):
         """Registry read raises → fallback 0xFFFFFFFF."""
         mock_read.side_effect = OSError("access denied")
 
         from core.fps_booster import detect_hybrid_cpu_p_core_mask
         assert detect_hybrid_cpu_p_core_mask() == 0xFFFFFFFF
 
+    @patch("core.fps_booster._detect_p_cores_winapi", return_value=None)
     @patch("core.fps_booster._read_hklm")
-    def test_single_core_returns_all_cores(self, mock_read):
+    def test_single_core_returns_all_cores(self, mock_read, mock_winapi):
         """Fewer than 2 cores detected → fallback."""
         def side_effect(subkey, value_name):
             idx = subkey.split("\\")[-1]

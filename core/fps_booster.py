@@ -46,18 +46,125 @@ def _get_process_path(pid: int) -> str:
     return psutil.Process(pid).exe()
 
 
+def _parse_logical_proc_info_ex(raw: bytes, total_length: int,
+                                ptr_size: int | None = None) -> int | None:
+    """Parse a ``GetLogicalProcessorInformationEx(RelationProcessorCore)``
+    buffer and return the combined affinity mask of all logical processors
+    that belong to cores with the highest ``EfficiencyClass``.
+
+    Returns ``None`` when the CPU is not hybrid (single efficiency class),
+    when fewer than two cores are reported, or when the resulting mask is
+    zero. The ``ptr_size`` parameter exists for tests on systems where
+    ``ctypes.c_size_t`` differs from the buffer's KAFFINITY width.
+    """
+    if ptr_size is None:
+        ptr_size = ctypes.sizeof(ctypes.c_size_t)
+
+    # SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX layout (RelationProcessorCore):
+    #   DWORD Relationship   @ +0
+    #   DWORD Size           @ +4
+    #   PROCESSOR_RELATIONSHIP:
+    #     BYTE  Flags             @ +8
+    #     BYTE  EfficiencyClass   @ +9
+    #     BYTE  Reserved[20]      @ +10..+29
+    #     WORD  GroupCount        @ +30
+    #     GROUP_AFFINITY[]        @ +32 (KAFFINITY + WORD Group + WORD[3] Reserved)
+    cores: list[tuple[int, int]] = []  # (efficiency_class, group0_mask)
+    offset = 0
+    while offset < total_length:
+        size = int.from_bytes(raw[offset + 4:offset + 8], "little")
+        if size <= 0:
+            break
+        efficiency = raw[offset + 9]
+        group_count = int.from_bytes(raw[offset + 30:offset + 32], "little")
+
+        mask_off = offset + 32
+        core_mask = 0
+        for _ in range(group_count):
+            grp_mask = int.from_bytes(raw[mask_off:mask_off + ptr_size], "little")
+            grp_id = int.from_bytes(raw[mask_off + ptr_size:mask_off + ptr_size + 2], "little")
+            if grp_id == 0:
+                core_mask |= grp_mask
+            mask_off += ptr_size + 8  # KAFFINITY + WORD + WORD[3]
+
+        cores.append((efficiency, core_mask))
+        offset += size
+
+    if len(cores) < 2:
+        return None
+
+    eff_classes = {c[0] for c in cores}
+    if len(eff_classes) < 2:
+        # Same efficiency class everywhere → CPU is not hybrid.
+        return None
+
+    max_eff = max(eff_classes)
+    p_mask = 0
+    for eff, m in cores:
+        if eff == max_eff:
+            p_mask |= m
+
+    return p_mask or None
+
+
+def _detect_p_cores_winapi() -> int | None:
+    """Detect P-core affinity via ``GetLogicalProcessorInformationEx``.
+
+    Returns the combined affinity mask of all cores with the highest
+    ``EfficiencyClass`` in group 0, or ``None`` when the CPU is not hybrid
+    or the Win32 call fails. Multi-group (server) systems return ``None``
+    because we only consider group 0.
+    """
+    try:
+        kernel32 = ctypes.windll.kernel32
+        RelationProcessorCore = 0
+
+        length = ctypes.wintypes.DWORD(0)
+        kernel32.GetLogicalProcessorInformationEx(
+            RelationProcessorCore, None, ctypes.byref(length)
+        )
+        if length.value == 0:
+            return None
+
+        buf = (ctypes.c_byte * length.value)()
+        if not kernel32.GetLogicalProcessorInformationEx(
+            RelationProcessorCore, buf, ctypes.byref(length)
+        ):
+            return None
+
+        p_mask = _parse_logical_proc_info_ex(bytes(buf), length.value)
+        if p_mask is None:
+            return None
+
+        logger.info("detect_p_cores_winapi: P-core mask=0x%X", p_mask)
+        return p_mask
+
+    except Exception as exc:
+        logger.debug("_detect_p_cores_winapi failed: %s", exc)
+        return None
+
+
 def detect_hybrid_cpu_p_core_mask() -> int:
     """
     Return a CPU affinity bitmask that covers only Performance (P) cores.
 
-    Works on all Intel hybrid CPUs (12th, 13th, 14th gen, Arrow Lake) by
-    reading per-logical-processor clock speeds from the registry and
-    grouping by frequency.  P-cores run at a higher base clock than E-cores
-    (e.g. 2400 MHz vs 1800 MHz).
+    Layered detection:
+      1. Win32 ``GetLogicalProcessorInformationEx`` — authoritative on all
+         Windows 10+ hybrid CPUs. Reads per-core ``EfficiencyClass``.
+      2. Per-logical-processor ``~MHz`` registry grouping — works when the
+         OS hasn't reported distinct efficiency classes but cores idle at
+         different frequencies (rare; older systems).
 
-    Falls back to ``0xFFFFFFFF`` (all cores) if detection fails or the CPU
-    is not a hybrid architecture.
+    Falls back to ``0xFFFFFFFF`` (sentinel meaning "no detection") when
+    every path fails. Callers MUST clamp the returned mask to the live
+    system affinity mask before passing it to ``SetProcessAffinityMask``,
+    or Win32 will reject the call — the sentinel is wider than any real
+    CPU's logical-processor count.
     """
+    winapi_mask = _detect_p_cores_winapi()
+    if winapi_mask is not None:
+        return winapi_mask
+
     _PROC_KEY = r"HARDWARE\DESCRIPTION\System\CentralProcessor"
 
     try:
@@ -173,6 +280,12 @@ def set_p_core_affinity(pid: int) -> int:
     Set P-core affinity on *pid* via ``SetProcessAffinityMask``.
 
     Returns the old affinity mask.  Raises ``OSError`` on failure.
+
+    The detected P-core mask is always intersected with the live system
+    affinity mask before being passed to Win32 — ``SetProcessAffinityMask``
+    rejects any mask that includes bits outside the system mask, and the
+    ``0xFFFFFFFF`` "unknown" sentinel from ``detect_hybrid_cpu_p_core_mask``
+    is wider than every real CPU's logical-processor count.
     """
     mask = detect_hybrid_cpu_p_core_mask()
     kernel32 = ctypes.windll.kernel32
@@ -181,23 +294,49 @@ def set_p_core_affinity(pid: int) -> int:
     if not handle:
         raise OSError(f"OpenProcess failed for PID {pid}")
 
-    old_mask = ctypes.c_size_t(0)
-    system_mask = ctypes.c_size_t(0)
+    try:
+        old_mask = ctypes.c_size_t(0)
+        system_mask = ctypes.c_size_t(0)
 
-    # GetProcessAffinityMask to save the current value.
-    kernel32.GetProcessAffinityMask(
-        handle,
-        ctypes.byref(old_mask),
-        ctypes.byref(system_mask),
-    )
+        if not kernel32.GetProcessAffinityMask(
+            handle,
+            ctypes.byref(old_mask),
+            ctypes.byref(system_mask),
+        ):
+            raise OSError(f"GetProcessAffinityMask failed for PID {pid}")
 
-    if not kernel32.SetProcessAffinityMask(handle, ctypes.c_size_t(mask)):
+        effective = mask & system_mask.value
+        if effective == 0:
+            # Detection produced no overlap with the system — leave affinity
+            # untouched rather than blanking it to zero (which Win32 also
+            # rejects).
+            logger.warning(
+                "fps_booster: PID %d affinity unchanged — detected mask 0x%X "
+                "has no overlap with system mask 0x%X",
+                pid, mask, system_mask.value,
+            )
+            return old_mask.value
+
+        if effective == old_mask.value:
+            logger.info(
+                "fps_booster: PID %d affinity already 0x%X — no change",
+                pid, effective,
+            )
+            return old_mask.value
+
+        if not kernel32.SetProcessAffinityMask(handle, ctypes.c_size_t(effective)):
+            raise OSError(
+                f"SetProcessAffinityMask failed for PID {pid} "
+                f"(mask=0x{effective:X}, system=0x{system_mask.value:X})"
+            )
+
+        logger.info(
+            "fps_booster: PID %d affinity set to 0x%X (was 0x%X, system 0x%X)",
+            pid, effective, old_mask.value, system_mask.value,
+        )
+        return old_mask.value
+    finally:
         kernel32.CloseHandle(handle)
-        raise OSError(f"SetProcessAffinityMask failed for PID {pid}")
-
-    kernel32.CloseHandle(handle)
-    logger.info("fps_booster: PID %d affinity set to 0x%X (was 0x%X)", pid, mask, old_mask.value)
-    return old_mask.value
 
 
 def set_timer_resolution(interval_100ns: int) -> None:
