@@ -174,6 +174,16 @@ class MainWindow(QMainWindow):
         self._gpu_temp_timer.timeout.connect(self._poll_gpu_temp)
         self._gpu_throttle_alerted = False
 
+        # P-core affinity re-apply window — Source 2 (CS2) and many UE titles
+        # reclaim all logical processors during their own startup *after*
+        # NetBoost has already pinned the process. Re-pin at 5/10/15/20s
+        # post-apply to outlast that init phase.
+        self._pcore_reapply_timer = QTimer(self)
+        self._pcore_reapply_timer.setInterval(5000)
+        self._pcore_reapply_timer.timeout.connect(self._on_pcore_reapply_tick)
+        self._pcore_reapply_remaining: int = 0
+        self._pcore_reapply_pid: int = 0
+
         # Ping host tracking — restored when game exits
         self._ping_host_before_game: str = "1.1.1.1"
         # Consecutive jitter spike counter for proactive health alerts
@@ -488,6 +498,10 @@ class MainWindow(QMainWindow):
         logger.info(f"Game exited: {exe_name}")
         self._current_game = None
         self._current_game_pid = 0
+        # Cancel any pending P-core re-apply ticks targeted at this PID.
+        self._pcore_reapply_timer.stop()
+        self._pcore_reapply_remaining = 0
+        self._pcore_reapply_pid = 0
         self.tab_dashboard.set_game_detected(None)
         if self.tray:
             self.tray.set_game_detected(None)
@@ -858,11 +872,62 @@ class MainWindow(QMainWindow):
                 except Exception as e:
                     logger.warning(f"NVIDIA optimizer apply failed: {e}")
 
+            # Re-pin the game during its startup window. Without this, Source 2
+            # (CS2) and many UE titles call SetProcessAffinityMask back to all
+            # logical processors a few seconds into their own init and the
+            # initial pin above is silently overwritten.
+            if settings.get("pcores_affinity") and game_pid:
+                self._start_pcore_reapply_window(game_pid)
+
             self._set_status("FPS optimizations applied")
         except Exception as e:
             logger.error(f"FPS apply error: {e}")
             self._set_status(f"FPS error: {e}")
             raise
+
+    def _start_pcore_reapply_window(self, pid: int) -> None:
+        """Schedule 4 additional P-core affinity re-pins at 5s intervals.
+
+        A second Apply (or a second Game Mode activation) restarts the
+        countdown from 4 rather than stacking timer connections — the
+        QTimer is reused.
+        """
+        self._pcore_reapply_timer.stop()
+        self._pcore_reapply_pid = pid
+        self._pcore_reapply_remaining = 4
+        self._pcore_reapply_timer.start()
+        logger.info(
+            "fps_booster: P-core re-apply window armed for PID %d (4 × 5s)", pid,
+        )
+
+    @pyqtSlot()
+    def _on_pcore_reapply_tick(self) -> None:
+        """Re-pin the game's affinity once. Stops the timer when the
+        countdown reaches zero or the PID is gone."""
+        pid = self._pcore_reapply_pid
+        if not pid:
+            self._pcore_reapply_timer.stop()
+            return
+
+        import psutil
+        if not psutil.pid_exists(pid):
+            logger.info("fps_booster: re-apply skipped — PID %d no longer alive", pid)
+            self._pcore_reapply_timer.stop()
+            self._pcore_reapply_remaining = 0
+            self._pcore_reapply_pid = 0
+            return
+
+        try:
+            from core.fps_booster import set_p_core_affinity
+            set_p_core_affinity(pid)
+        except OSError as exc:
+            logger.warning("fps_booster: re-apply tick failed for PID %d: %s", pid, exc)
+
+        self._pcore_reapply_remaining -= 1
+        if self._pcore_reapply_remaining <= 0:
+            self._pcore_reapply_timer.stop()
+            self._pcore_reapply_pid = 0
+            logger.info("fps_booster: P-core re-apply window finished")
 
     @pyqtSlot()
     def _on_fps_restore(self):
@@ -871,6 +936,11 @@ class MainWindow(QMainWindow):
         self.tab_monitor.update_applied_settings(self._applied_settings)
         self._gpu_temp_timer.stop()
         self._gpu_throttle_alerted = False
+        # Stop any pending P-core re-apply ticks so they don't run against a
+        # process whose affinity the user has just asked us to leave alone.
+        self._pcore_reapply_timer.stop()
+        self._pcore_reapply_remaining = 0
+        self._pcore_reapply_pid = 0
         try:
             if self.state_guard:
                 state = self.state_guard.get_state()
