@@ -41,9 +41,11 @@ class _DummyToast:
 class _DummyTimer:
     def __init__(self):
         self.started = False
+        self.started_ms = None
 
-    def start(self):
+    def start(self, ms=None):
         self.started = True
+        self.started_ms = ms
 
 
 class _DummyDashboard:
@@ -89,6 +91,9 @@ def _window_for_game_mode():
     window.process_watcher = None
     window.tray = None
     window._gpu_temp_timer = _DummyTimer()
+    window._health_alert_timer = _DummyTimer()
+    window._health_alert_cooldown = False
+    window._consecutive_jitter_spikes = 0
     window._toast = _DummyToast()
     window._set_status = MagicMock()
 

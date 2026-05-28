@@ -396,6 +396,20 @@ class MainWindow(QMainWindow):
         diffs = [abs(readings[i] - readings[i-1]) for i in range(1, len(readings))]
         return sum(diffs) / len(diffs)
 
+    def _reset_ping_stats_for_host_switch(self, new_host: str, reset_monitor_tab: bool = True) -> None:
+        # Without this, the 20-sample rolling window in on_ping_reading mixes
+        # samples from the old host (e.g. 1.1.1.1 ~15 ms) with the new host
+        # (game server ~60 ms), producing recurring consecutive-diff jitter
+        # >30 ms = red until the window fully drains. _on_host_changed has
+        # been doing this manually for the user-initiated path; the auto
+        # paths (server discovery, game exit) now share it.
+        self._ping_history.clear()
+        self._loss_count = 0
+        self._total_count = 0
+        self._consecutive_jitter_spikes = 0
+        if reset_monitor_tab:
+            self.tab_monitor.set_host(new_host)
+
     def _find_running_game_for_mode(self) -> str | None:
         """Return a currently running watched game, prioritizing stable-ping games."""
         from core.stable_ping_policy import is_stable_ping_game
@@ -490,6 +504,7 @@ class MainWindow(QMainWindow):
         if self.ping_monitor:
             self._ping_host_before_game = self.ping_monitor.host
             self.ping_monitor.set_host(ip)
+            self._reset_ping_stats_for_host_switch(ip)
         self.tab_dashboard.set_ping_host(f"Game Server ({ip})")
         logger.info("PingMonitor re-targeted to game server %s", ip)
 
@@ -511,8 +526,8 @@ class MainWindow(QMainWindow):
         # Restore ping monitor to its original host
         if self.ping_monitor:
             self.ping_monitor.set_host(self._ping_host_before_game)
+            self._reset_ping_stats_for_host_switch(self._ping_host_before_game)
         self.tab_dashboard.set_ping_host("Current Ping")
-        self._consecutive_jitter_spikes = 0
 
         if self._game_mode_active:
             self._deactivate_game_mode()
@@ -615,6 +630,17 @@ class MainWindow(QMainWindow):
         self._game_mode_applied = any_succeeded
         self.tab_monitor.update_applied_settings(self._applied_settings)
 
+        # Apply-transient grace period. DSCP refresh + sequential service pauses
+        # in BackgroundKiller can hitch the main thread / briefly perturb UDP
+        # for a couple of seconds. Without this grace, the 8% packet-loss
+        # alarm and the "3 consecutive >30 ms" jitter-streak alarm in
+        # _check_connectivity_health can fire toasts on top of the visible
+        # spike. Don't shorten an already-active 60 s cooldown.
+        self._consecutive_jitter_spikes = 0
+        if not self._health_alert_cooldown:
+            self._health_alert_cooldown = True
+            self._health_alert_timer.start(3000)
+
         # Start GPU temp polling if nvidia settings are on
         fps = self._applied_settings.get("fps", {})
         if fps.get("nvidia_max_perf") or fps.get("nvidia_ull"):
@@ -638,6 +664,11 @@ class MainWindow(QMainWindow):
 
     def _deactivate_game_mode(self):
         """Restore settings only if Game Mode was the one that applied them."""
+        # restore_all() below restarts paused services synchronously, which
+        # produces the same kind of brief blip as the apply path — clear the
+        # streak so the next reading doesn't get counted against the old run.
+        self._consecutive_jitter_spikes = 0
+
         # DSCP teardown is intentional even when _game_mode_applied is False — a
         # successful DSCP apply with a failed Wi-Fi apply would otherwise leak
         # the QoS policy registry key past Game Mode deactivation.
@@ -1391,10 +1422,11 @@ class MainWindow(QMainWindow):
     def _on_host_changed(self, host: str):
         if self.ping_monitor:
             self.ping_monitor.set_host(host)
-            # Reset stats
-            self._ping_history.clear()
-            self._loss_count = 0
-            self._total_count = 0
+            # TabMonitor._on_apply already reset its own _prev_latency / _sum_ping
+            # when the user clicked Apply in the Monitor tab, so don't re-trigger
+            # tab_monitor.set_host() here — it would clobber that and refresh
+            # the host label twice.
+            self._reset_ping_stats_for_host_switch(host, reset_monitor_tab=False)
 
     # ------------------------------------------------------------------ Battery
 
