@@ -172,6 +172,21 @@ class TabOptimizer(QWidget):
             svc_layout.addWidget(row)
         layout.addWidget(svc_group)
 
+        # ── System Tweaks ─────────────────────────────────────────────────────
+        # Reboot-required tweaks that don't fit any existing optimizer module.
+        sys_group = QGroupBox("System Tweaks (reboot required)")
+        sys_layout = QVBoxLayout(sys_group)
+        sys_layout.setSpacing(4)
+        for key, label in [
+            ("force_msi_mode",              "Force MSI Mode (GPU + Wi-Fi)"),
+            ("disable_ndu",                 "Disable NDU service"),
+            ("disable_network_throttling",  "Disable Windows network throttling"),
+        ]:
+            row = _ToggleRow(key, label)
+            self._toggle_rows[key] = row
+            sys_layout.addWidget(row)
+        layout.addWidget(sys_group)
+
         # ── RAM Optimizer ─────────────────────────────────────────────────────
         ram_group = QGroupBox("RAM Optimizer")
         ram_layout = QHBoxLayout(ram_group)

@@ -25,7 +25,16 @@ _STATE_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "N
 _STATE_FILE = os.path.join(_STATE_DIR, "state.json")
 
 # Dict-replacing backup keys whose mutation can produce a branch-on-apply.
-_BACKUP_DICT_KEYS = ("dns_backup", "tcp_backup", "wifi_backup", "nvidia_backup", "fps_backup")
+_BACKUP_DICT_KEYS = (
+    "dns_backup",
+    "tcp_backup",
+    "wifi_backup",
+    "nvidia_backup",
+    "fps_backup",
+    "msi_backup",
+    "ndu_backup",
+    "throttling_backup",
+)
 # Cumulative list keys mirrored into every history entry.
 _BACKUP_LIST_KEYS = ("paused_services", "suspended_pids", "qos_policies")
 # Cap history at this many entries — drops oldest when exceeded.
@@ -41,6 +50,9 @@ _EMPTY_STATE: dict = {
     "wifi_backup": {},
     "nvidia_backup": {},
     "fps_backup": {},
+    "msi_backup": {},
+    "ndu_backup": {},
+    "throttling_backup": {},
     "backup_history": [],
 }
 
@@ -245,6 +257,33 @@ def _restore_entry(entry: dict) -> None:
         except Exception as exc:
             logger.error("restore_all: FPS restore failed: %s", exc)
 
+    msi_backup = entry.get("msi_backup") or {}
+    if msi_backup:
+        try:
+            from core import system_tweaks  # type: ignore[import]
+            system_tweaks.restore_msi_mode(msi_backup)
+            logger.info("restore_all: MSI Mode restored.")
+        except Exception as exc:
+            logger.error("restore_all: MSI restore failed: %s", exc)
+
+    ndu_backup = entry.get("ndu_backup") or {}
+    if ndu_backup:
+        try:
+            from core import system_tweaks  # type: ignore[import]
+            system_tweaks.restore_ndu_service(ndu_backup)
+            logger.info("restore_all: NDU service restored.")
+        except Exception as exc:
+            logger.error("restore_all: NDU restore failed: %s", exc)
+
+    throttling_backup = entry.get("throttling_backup") or {}
+    if throttling_backup:
+        try:
+            from core import system_tweaks  # type: ignore[import]
+            system_tweaks.restore_network_throttling(throttling_backup)
+            logger.info("restore_all: Network throttling restored.")
+        except Exception as exc:
+            logger.error("restore_all: Throttling restore failed: %s", exc)
+
 
 def restore_all(state: dict | None = None) -> None:
     """
@@ -367,6 +406,21 @@ def record_fps_backup(backup: dict) -> None:
     _mutate_backup_dict("fps_backup", backup)
 
 
+def record_msi_backup(backup: dict) -> None:
+    """Store the pre-MSI-Mode per-device MSISupported values."""
+    _mutate_backup_dict("msi_backup", backup)
+
+
+def record_ndu_backup(backup: dict) -> None:
+    """Store the pre-disable NDU service Start value."""
+    _mutate_backup_dict("ndu_backup", backup)
+
+
+def record_throttling_backup(backup: dict) -> None:
+    """Store the pre-disable NetworkThrottlingIndex value."""
+    _mutate_backup_dict("throttling_backup", backup)
+
+
 def add_paused_service(name: str) -> None:
     """Register a Windows service that has been paused by NetBoost."""
     services = list(load_state().get("paused_services") or [])
@@ -449,6 +503,15 @@ class StateGuard:
 
     def record_fps_backup(self, backup: dict) -> None:
         record_fps_backup(backup)
+
+    def record_msi_backup(self, backup: dict) -> None:
+        record_msi_backup(backup)
+
+    def record_ndu_backup(self, backup: dict) -> None:
+        record_ndu_backup(backup)
+
+    def record_throttling_backup(self, backup: dict) -> None:
+        record_throttling_backup(backup)
 
     def add_paused_service(self, name: str) -> None:
         add_paused_service(name)

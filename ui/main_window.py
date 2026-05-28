@@ -1073,6 +1073,33 @@ class MainWindow(QMainWindow):
                 lambda backup: self._restore_background_killer(backup),
             )
 
+        # System Tweaks — MSI Mode / NDU / NetworkThrottlingIndex.
+        # Each requires a reboot to take full effect; the apply writes
+        # land immediately so the backup is recorded synchronously.
+        if settings.get("force_msi_mode"):
+            from core import system_tweaks
+            tx.add_step(
+                "MSI",
+                lambda: system_tweaks.apply_msi_mode_all(),
+                lambda backup: system_tweaks.restore_msi_mode(backup),
+            )
+
+        if settings.get("disable_ndu"):
+            from core import system_tweaks
+            tx.add_step(
+                "NDU",
+                lambda: system_tweaks.disable_ndu_service(),
+                lambda backup: system_tweaks.restore_ndu_service(backup),
+            )
+
+        if settings.get("disable_network_throttling"):
+            from core import system_tweaks
+            tx.add_step(
+                "Throttling",
+                lambda: system_tweaks.disable_network_throttling(),
+                lambda backup: system_tweaks.restore_network_throttling(backup),
+            )
+
         # Execute all-or-nothing
         from core.transaction import TransactionError
         try:
@@ -1093,6 +1120,28 @@ class MainWindow(QMainWindow):
                     self.state_guard.add_paused_service(svc["name"])
                 for pid in svc_backup.get("suspended_pids", []):
                     self.state_guard.add_suspended_pid(pid)
+            if "MSI" in results:
+                self.state_guard.record_msi_backup(results["MSI"])
+            if "NDU" in results:
+                self.state_guard.record_ndu_backup(results["NDU"])
+            if "Throttling" in results:
+                self.state_guard.record_throttling_backup(results["Throttling"])
+
+        # Reboot-required toast for the new System Tweaks group. Fire once,
+        # only if any of the three actually ran this apply.
+        system_tweaks_ran = any(k in results for k in ("MSI", "NDU", "Throttling"))
+        if system_tweaks_ran:
+            self._toast.show_message(
+                "Reboot required for full effect of System Tweaks.",
+                "warning",
+                duration_ms=8000,
+            )
+            if "MSI" in results and results["MSI"].get("_access_denied"):
+                self._toast.show_message(
+                    "MSI Mode: some device writes were denied — may need SYSTEM-level permission.",
+                    "warning",
+                    duration_ms=8000,
+                )
 
         self._set_status("All network optimizations applied")
 
@@ -1159,6 +1208,33 @@ class MainWindow(QMainWindow):
                                 pass
                     except Exception as e:
                         logger.error(f"Services restore error: {e}")
+
+                # System Tweaks — MSI / NDU / NetworkThrottlingIndex.
+                # Targeted restores; mirrors the per-tab restore pattern
+                # already used for DNS/TCP/services above.
+                msi_backup = state.get("msi_backup") or {}
+                if msi_backup:
+                    try:
+                        from core import system_tweaks
+                        system_tweaks.restore_msi_mode(msi_backup)
+                    except Exception as e:
+                        logger.error(f"MSI restore error: {e}")
+
+                ndu_backup = state.get("ndu_backup") or {}
+                if ndu_backup:
+                    try:
+                        from core import system_tweaks
+                        system_tweaks.restore_ndu_service(ndu_backup)
+                    except Exception as e:
+                        logger.error(f"NDU restore error: {e}")
+
+                throttling_backup = state.get("throttling_backup") or {}
+                if throttling_backup:
+                    try:
+                        from core import system_tweaks
+                        system_tweaks.restore_network_throttling(throttling_backup)
+                    except Exception as e:
+                        logger.error(f"Throttling restore error: {e}")
 
                 self._set_status("Network settings restored")
                 self._toast.show_message("Network settings restored", "success")
@@ -1274,6 +1350,7 @@ class MainWindow(QMainWindow):
                 **profile.get("tcp_optimizer", {}),
                 **profile.get("dns", {}),
                 **profile.get("background_killer", {}),
+                **profile.get("system_tweaks", {}),
             })
             game_list = profile.get("game_list", [])
             if game_list:

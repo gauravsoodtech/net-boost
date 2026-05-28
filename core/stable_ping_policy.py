@@ -110,6 +110,12 @@ OPTIMIZER_SETTING_KEYS = (
     "pause_onedrive",
     "pause_bits",
     "pause_telemetry",
+    # System Tweaks (require reboot; opt-in — deliberately excluded from
+    # CS2_OPTIMIZER_ENABLED_KEYS until the user has reboot-validated them
+    # once. Adding them to the auto bundle for CS2 is a future-PR step.)
+    "force_msi_mode",
+    "disable_ndu",
+    "disable_network_throttling",
 )
 
 # Background-bandwidth bundle for CS2.  `pause_telemetry` catches DiagTrack,

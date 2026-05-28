@@ -102,6 +102,12 @@ def _empty_profile(name: str = "") -> dict:
             "max_power": False,
             "enabled": False,
         },
+        "system_tweaks": {
+            "force_msi_mode": False,
+            "disable_ndu": False,
+            "disable_network_throttling": False,
+            "enabled": False,
+        },
     }
 
 

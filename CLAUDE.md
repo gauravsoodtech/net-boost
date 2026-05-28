@@ -62,6 +62,7 @@ tests/                      # pytest unit tests + integration check script
 | `core/bandwidth_manager.py` | DSCP QoS registry + SetPriorityClass | `BandwidthManager` |
 | `core/ram_optimizer.py` | EmptyWorkingSet + file cache flush | `RamOptimizer` |
 | `core/route_analyzer.py` | tracert parser, bottleneck detection, game server discovery | `_TraceRouteWorker`, `_DiscoverWorker`, `mark_bottlenecks()` |
+| `core/system_tweaks.py` | Force MSI Mode (GPU + Wi-Fi NIC), disable NDU service, disable NetworkThrottlingIndex | `apply_msi_mode_all`, `disable_ndu_service`, `disable_network_throttling` (+ matching `restore_*`) |
 | `core/settings_risk.py` | Risk metadata for every toggle key (pure Python, no Qt) | `get_risk()`, `filter_by_level()` |
 | `core/adaptive_engine.py` | Converts telemetry windows into advisor recommendations; no system mutation | `AdaptiveEngine`, `AdaptiveRecommendation` |
 | `core/adaptive_advisor.py` | Session-local recommendation queue and settings merge helpers | `RecommendationQueue`, `merge_settings_patch()` |
@@ -290,6 +291,9 @@ UI toggle keys in `tab_fps.py` are routed to **two** core modules by `MainWindow
 - `tcp_window_scale` is translated to `window_scaling` before passing to `NetworkOptimizer`
 - `switch_dns` → triggers `DnsSwitcher`
 - `pause_windows_update`, `pause_onedrive`, `pause_bits` → triggers `BackgroundKiller`
+- `force_msi_mode` → triggers `system_tweaks.apply_msi_mode_all()` — backup recorded under `msi_backup`
+- `disable_ndu` → triggers `system_tweaks.disable_ndu_service()` (`sc.exe config Ndu start=disabled`) — backup under `ndu_backup`
+- `disable_network_throttling` → triggers `system_tweaks.disable_network_throttling()` — backup under `throttling_backup`
 
 ## StatusToast Widget
 
@@ -403,6 +407,9 @@ All setting key names are defined by the UI toggle rows (`_toggle_rows` dicts in
 **DNS (`tab_optimizer.py` → `core/dns_switcher.py`):**
 `switch_dns`, `dns_provider` (display name), `dns_primary`, `dns_secondary`
 
+**System Tweaks (`tab_optimizer.py` → `core/system_tweaks.py`):**
+`force_msi_mode`, `disable_ndu`, `disable_network_throttling`
+
 **FPS Booster CPU rows (`tab_fps.py` → `core/fps_booster.py`):**
 `power_plan`, `pcores_affinity`, `timer_resolution`, `game_dvr_off`, `sysmain_off`, `visual_effects_off`, `fullscreen_opt_off`
 
@@ -428,11 +435,12 @@ All profile fields and their canonical keys (as of current schema):
   "wifi_optimizer": {"disable_power_saving": true, "minimize_roaming": true, "prefer_6ghz": true,
                      "max_tx_power": true, "disable_bss_scan": true,
                      "throughput_booster": true, "disable_mimo_power_save": true, "enabled": true},
-  "nvidia_optimizer": {"dynamic_pstate_off": true, "ull_mode": true, "max_power": true, "enabled": true}
+  "nvidia_optimizer": {"dynamic_pstate_off": true, "ull_mode": true, "max_power": true, "enabled": true},
+  "system_tweaks": {"force_msi_mode": false, "disable_ndu": false, "disable_network_throttling": false, "enabled": false}
 }
 ```
 
-`_apply_profile()` in `MainWindow` maps profile sections to tabs: `wifi_optimizer` → `tab_wifi`, `fps_boost` → `tab_fps`, merge of `tcp_optimizer`+`dns`+`background_killer` → `tab_optimizer`.
+`_apply_profile()` in `MainWindow` maps profile sections to tabs: `wifi_optimizer` → `tab_wifi`, `fps_boost` → `tab_fps`, merge of `tcp_optimizer`+`dns`+`background_killer`+`system_tweaks` → `tab_optimizer`.
 
 ## Common Pitfalls
 
@@ -479,6 +487,10 @@ All profile fields and their canonical keys (as of current schema):
 - `_check_connectivity_health` packet-loss threshold is **8%** (not 15%) — 15% is too high for Valorant where even 5% loss is noticeable; the lower threshold catches micro-drops from 6GHz band reconnects and AP handoffs before they accumulate
 - `psutil.Process(pid).net_connections()` returns 0 connections for Vanguard-protected Valorant processes — Vanguard's kernel driver hides the game's UDP connections from user-mode inspection; use `netstat -n` or `Get-NetTCPConnection` system-wide to find game server IPs instead. The `_DiscoverWorker` will silently get an empty list and retry, eventually exhausting retries — this is expected behaviour when Vanguard is running
 - `TabRoute.server_found` is a `pyqtSignal(str)` on `TabRoute` itself (not on `_DiscoverWorkerSignals`) — `MainWindow` connects `tab_route.server_found` → `_on_game_server_found(ip)` to re-target the ping monitor; `TabRoute._on_server_found` emits it after storing the IP and before starting the trace
+- `force_msi_mode` writes `MSISupported=1` under each matched PCI device's `Device Parameters\Interrupt Management\MessageSignaledInterruptProperties` subkey — **requires reboot** to take effect. The write may fail with `PermissionError` on hardened systems because the Enum subtree wants SYSTEM-level access; `apply_msi_mode_all()` sets `backup["_access_denied"] = True` in that case and `_apply_optimizer` surfaces it as a separate amber toast
+- `disable_ndu` runs `sc.exe config Ndu start=disabled` and reads the prior `Start` DWORD into the backup so restore goes back to whatever it actually was (not a hard-coded default) — **requires reboot** to fully unload the kernel driver, and the Task Manager → App History → Network usage column will show zeros until restored
+- MSI / NDU / throttling backups live under `msi_backup`, `ndu_backup`, `throttling_backup` in `state.json` and are picked up by `_BACKUP_DICT_KEYS` in `state_guard.py`. `_restore_entry` dispatches each to the matching `system_tweaks.restore_*` function, mirroring the wifi / nvidia / fps restore blocks above it
+- `system_tweaks` keys are appended to `OPTIMIZER_SETTING_KEYS` but are **not** in `CS2_OPTIMIZER_ENABLED_KEYS` — they require reboot and stay opt-in until the user has reboot-validated them. Auto-enabling them in the CS2 Game Mode bundle is a deliberate future step
 
 ## Route Analyzer Tab
 

@@ -199,6 +199,37 @@ RISK_REGISTRY: dict[str, dict] = {
         "cause": "DiagTrack sends telemetry bursts that cause brief network congestion spikes.",
         "advice": "Safe; telemetry resumes on restore or next boot.",
     },
+    "force_msi_mode": {
+        "level": "MEDIUM",
+        "tab": "optimizer",
+        "display": "Force MSI Mode (GPU + Wi-Fi)",
+        "cause": (
+            "Changes the interrupt delivery method for the GPU and Wi-Fi adapter "
+            "at the driver level. Requires reboot. If a driver is later "
+            "reinstalled, the registry value may be reset to the vendor default."
+        ),
+        "advice": "Apply once, reboot, verify no driver issues. Use Restore Defaults if a device becomes unstable.",
+    },
+    "disable_ndu": {
+        "level": "LOW",
+        "tab": "optimizer",
+        "display": "Disable NDU service",
+        "cause": (
+            "Disables the Network Data Usage service. Task Manager's App "
+            "History → Network usage column will show zeros."
+        ),
+        "advice": "Safe to enable; cosmetic Task Manager effect only.",
+    },
+    "disable_network_throttling": {
+        "level": "LOW",
+        "tab": "optimizer",
+        "display": "Disable Windows network throttling",
+        "cause": (
+            "Removes the multimedia-traffic packet pacer. Has no effect on "
+            "systems that don't run media playback during gaming."
+        ),
+        "advice": "Safe to enable on a dedicated gaming machine.",
+    },
 }
 
 _LEVEL_ORDER = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}

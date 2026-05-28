@@ -303,3 +303,46 @@ class TestStateGuard:
         history = clean_guard.get_state()["backup_history"]
         assert "wuauserv" in history[-1]["paused_services"]
         assert "BITS" in history[-1]["paused_services"]
+
+    # --- system_tweaks backups (MSI / NDU / NetworkThrottlingIndex) ---
+
+    def test_record_msi_backup(self, guard):
+        """record_msi_backup persists the per-device MSI prior values."""
+        backup = {
+            "values": {"subkey-a": 0, "subkey-b": -1},
+            "_targets_found": 2,
+            "_writes_succeeded": 2,
+            "_access_denied": False,
+        }
+        guard.record_msi_backup(backup)
+        state = guard.get_state()
+        assert state["msi_backup"]["values"]["subkey-a"] == 0
+        assert state["msi_backup"]["values"]["subkey-b"] == -1
+
+    def test_record_ndu_backup(self, guard):
+        """record_ndu_backup persists the prior Start DWORD."""
+        guard.record_ndu_backup({"start": 2, "_ok": True, "_error": ""})
+        state = guard.get_state()
+        assert state["ndu_backup"]["start"] == 2
+
+    def test_record_throttling_backup(self, guard):
+        """record_throttling_backup persists the prior NetworkThrottlingIndex value."""
+        guard.record_throttling_backup({"prev_value": 10, "_ok": True})
+        state = guard.get_state()
+        assert state["throttling_backup"]["prev_value"] == 10
+
+    def test_restore_all_dispatches_system_tweaks_restores(self, clean_guard):
+        """restore_all walks history and calls each system_tweaks restore once."""
+        clean_guard.record_msi_backup({"values": {"sub-a": 0}})
+        clean_guard.record_ndu_backup({"start": 2, "_ok": True})
+        clean_guard.record_throttling_backup({"prev_value": 10, "_ok": True})
+
+        with patch("core.system_tweaks.restore_msi_mode") as mock_msi, \
+             patch("core.system_tweaks.restore_ndu_service") as mock_ndu, \
+             patch("core.system_tweaks.restore_network_throttling") as mock_throttle:
+            clean_guard.restore_all()
+
+        # Each restore_* must fire at least once across the replayed history.
+        assert mock_msi.called
+        assert mock_ndu.called
+        assert mock_throttle.called
