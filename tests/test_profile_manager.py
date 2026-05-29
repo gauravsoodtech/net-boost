@@ -70,10 +70,10 @@ class TestProfileManager:
         fps = profile["fps_boost"]
         assert fps["timer_resolution"] is True
         assert fps["power_plan"] is True
-        assert fps["nvidia_max_perf"] is True
         assert fps["nvidia_ull"] is True
         # Excluded:
-        assert fps["pcores_affinity"] is False  # starves CS2 E-cores → stutter
+        assert fps["pcores_affinity"] is False   # starves CS2 E-cores → stutter
+        assert fps["nvidia_max_perf"] is False   # RTX 4060 Laptop thermal-throttle → stutter
         assert fps["disable_hags"] is False
         assert fps["visual_effects_off"] is False
         assert fps["enabled"] is True

@@ -96,13 +96,17 @@ FPS_SETTING_KEYS = (
 # compilation, and the post-apply re-pin window (MainWindow) forces repeated
 # thread migrations — both produce micro-stutter (see core/settings_risk.py).
 # It stays available as a manual FPS toggle for users who want to pin manually.
+#
+# `nvidia_max_perf` is intentionally excluded: locking the RTX 4060 *Laptop*
+# at its P0 max-clock state makes it thermal-throttle after ~10 min, and the
+# resulting clock oscillation shows up as frame-time variance / stutter. The
+# low-risk `nvidia_ull` (render-ahead trim) is kept — it doesn't pin clocks.
 CS2_FPS_ENABLED_KEYS = frozenset({
     "power_plan",
     "timer_resolution",
     "game_dvr_off",
     "fullscreen_opt_off",
     "sysmain_off",
-    "nvidia_max_perf",
     "nvidia_ull",
 })
 

@@ -6,9 +6,10 @@ than Valorant's:
 
 - Extended Wi-Fi bundle: Valorant's 4 keys plus ``disable_mimo_power_save``.
   ``throughput_booster`` is excluded — its packet bursting causes ping spikes.
-- FPS Booster bundle (NVIDIA P0 + timer/power).  ``pcores_affinity`` is
-  excluded (starves CS2 E-cores → stutter); ``disable_hags`` and
-  ``visual_effects_off`` are also intentionally excluded.
+- FPS Booster bundle (NVIDIA ULL + timer/power).  ``pcores_affinity``
+  (starves CS2 E-cores → stutter) and ``nvidia_max_perf`` (RTX 4060 Laptop
+  thermal-throttle → stutter) are excluded, as are ``disable_hags`` and
+  ``visual_effects_off``.
 - Background Killer bundle (Windows Update, OneDrive, BITS, DiagTrack).
   TCP / DNS deliberately omitted — CS2 is UDP.
 - Per-app DSCP EF (46) QoS policy on ``cs2.exe``.
@@ -56,9 +57,10 @@ def test_cs2_wifi_bundle_extends_valorant_with_mimo_key_only():
 def test_cs2_fps_bundle_includes_stutter_keys_but_not_reboot_required_keys():
     # Stutter-prevention musts:
     assert {"timer_resolution", "power_plan"} <= CS2_FPS_ENABLED_KEYS
-    assert {"nvidia_max_perf", "nvidia_ull"} <= CS2_FPS_ENABLED_KEYS
+    assert "nvidia_ull" in CS2_FPS_ENABLED_KEYS               # render-ahead trim, doesn't pin clocks
     # Deliberately excluded:
     assert "pcores_affinity" not in CS2_FPS_ENABLED_KEYS      # starves CS2 E-cores → stutter
+    assert "nvidia_max_perf" not in CS2_FPS_ENABLED_KEYS      # RTX 4060 Laptop thermal-throttle → stutter
     assert "disable_hags" not in CS2_FPS_ENABLED_KEYS         # needs reboot
     assert "visual_effects_off" not in CS2_FPS_ENABLED_KEYS   # too invasive
 
@@ -87,7 +89,7 @@ def test_cs2_fps_settings_helper_shape():
     assert s["pcores_affinity"] is False  # excluded — starves CS2 E-cores → stutter
     assert s["timer_resolution"] is True
     assert s["power_plan"] is True
-    assert s["nvidia_max_perf"] is True
+    assert s["nvidia_max_perf"] is False  # excluded — RTX 4060 Laptop thermal-throttle → stutter
     assert s["nvidia_ull"] is True
     assert s["disable_hags"] is False
     assert s["visual_effects_off"] is False
