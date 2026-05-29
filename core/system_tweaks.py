@@ -42,8 +42,6 @@ _INTEL_WIFI_SERVICE_PREFIXES = ("Netwtw",)          # AX201/AX210/AX211 driver f
 
 NDU_REG_PATH = r"SYSTEM\CurrentControlSet\Services\Ndu"
 NDU_VALUE_NAME = "Start"
-NDU_DISABLED = 4   # SERVICE_DISABLED
-NDU_DEFAULT = 2    # SERVICE_AUTO_START (Win11 default for Ndu)
 
 THROTTLING_REG_PATH = (
     r"SOFTWARE\Microsoft\Windows NT\CurrentVersion\Multimedia\SystemProfile"

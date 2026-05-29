@@ -57,10 +57,14 @@ VALORANT_WIFI_ENABLED_KEYS = frozenset({
 # subset, which matches Valorant's needs.
 STABLE_PING_WIFI_ENABLED_KEYS = VALORANT_WIFI_ENABLED_KEYS
 
-# CS2 — Valorant subset plus the two AX211-friendly throughput keys that
-# Valorant deliberately omits.  No Vanguard concerns here.
+# CS2 — Valorant subset plus the AX211-friendly MIMO key that Valorant
+# deliberately omits.  No Vanguard concerns here.
+#
+# `throughput_booster` is intentionally excluded: its packet-bursting behaviour
+# competes with latency stability and was a confirmed source of in-game ping
+# spikes for CS2 (see core/settings_risk.py — "Keep off for Stable Ping Mode").
+# It stays available as a manual Wi-Fi toggle for users who want raw throughput.
 CS2_WIFI_ENABLED_KEYS = frozenset(VALORANT_WIFI_ENABLED_KEYS | {
-    "throughput_booster",
     "disable_mimo_power_save",
 })
 
@@ -86,9 +90,14 @@ FPS_SETTING_KEYS = (
 # add risk on the Restore path.  `visual_effects_off` is intentionally
 # excluded — it changes desktop animation globally, too invasive for an auto
 # plan.
+#
+# `pcores_affinity` is intentionally excluded: pinning CS2 to P-cores only
+# starves the E-core threads Source 2 uses for audio, networking, and shader
+# compilation, and the post-apply re-pin window (MainWindow) forces repeated
+# thread migrations — both produce micro-stutter (see core/settings_risk.py).
+# It stays available as a manual FPS toggle for users who want to pin manually.
 CS2_FPS_ENABLED_KEYS = frozenset({
     "power_plan",
-    "pcores_affinity",
     "timer_resolution",
     "game_dvr_off",
     "fullscreen_opt_off",

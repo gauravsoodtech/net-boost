@@ -4,10 +4,11 @@ Tests for the CS2 extension of the stable-ping policy.
 CS2 has no kernel anti-cheat (Vanguard), so its Game Mode plan is broader
 than Valorant's:
 
-- Extended Wi-Fi bundle: Valorant's 4 keys plus ``throughput_booster`` and
-  ``disable_mimo_power_save``.
-- FPS Booster bundle (CPU pinning + NVIDIA P0).  ``disable_hags`` and
-  ``visual_effects_off`` are intentionally excluded.
+- Extended Wi-Fi bundle: Valorant's 4 keys plus ``disable_mimo_power_save``.
+  ``throughput_booster`` is excluded — its packet bursting causes ping spikes.
+- FPS Booster bundle (NVIDIA P0 + timer/power).  ``pcores_affinity`` is
+  excluded (starves CS2 E-cores → stutter); ``disable_hags`` and
+  ``visual_effects_off`` are also intentionally excluded.
 - Background Killer bundle (Windows Update, OneDrive, BITS, DiagTrack).
   TCP / DNS deliberately omitted — CS2 is UDP.
 - Per-app DSCP EF (46) QoS policy on ``cs2.exe``.
@@ -44,17 +45,20 @@ def test_cs2_is_a_dscp_game_but_valorant_is_not():
     assert is_dscp_game("") is False
 
 
-def test_cs2_wifi_bundle_extends_valorant_with_throughput_keys():
+def test_cs2_wifi_bundle_extends_valorant_with_mimo_key_only():
     assert CS2_WIFI_ENABLED_KEYS >= VALORANT_WIFI_ENABLED_KEYS
     extra = CS2_WIFI_ENABLED_KEYS - VALORANT_WIFI_ENABLED_KEYS
-    assert extra == {"throughput_booster", "disable_mimo_power_save"}
+    assert extra == {"disable_mimo_power_save"}
+    # Excluded: packet bursting competes with latency stability → ping spikes.
+    assert "throughput_booster" not in CS2_WIFI_ENABLED_KEYS
 
 
 def test_cs2_fps_bundle_includes_stutter_keys_but_not_reboot_required_keys():
     # Stutter-prevention musts:
-    assert {"pcores_affinity", "timer_resolution", "power_plan"} <= CS2_FPS_ENABLED_KEYS
+    assert {"timer_resolution", "power_plan"} <= CS2_FPS_ENABLED_KEYS
     assert {"nvidia_max_perf", "nvidia_ull"} <= CS2_FPS_ENABLED_KEYS
     # Deliberately excluded:
+    assert "pcores_affinity" not in CS2_FPS_ENABLED_KEYS      # starves CS2 E-cores → stutter
     assert "disable_hags" not in CS2_FPS_ENABLED_KEYS         # needs reboot
     assert "visual_effects_off" not in CS2_FPS_ENABLED_KEYS   # too invasive
 
@@ -70,17 +74,17 @@ def test_cs2_optimizer_bundle_is_background_killer_only_no_tcp():
 
 def test_cs2_wifi_settings_helper_shape():
     s = cs2_wifi_settings()
-    # Six True keys (Valorant's 4 + 2 throughput keys), rest False.
+    # Five True keys (Valorant's 4 + disable_mimo_power_save), rest False.
     assert {k for k, v in s.items() if v} == CS2_WIFI_ENABLED_KEYS
     assert s["disable_lso"] is True
-    assert s["throughput_booster"] is True
+    assert s["throughput_booster"] is False  # excluded — ping-spike source
     assert s["disable_mimo_power_save"] is True
     assert s["prefer_6ghz"] is False  # not in the auto bundle
 
 
 def test_cs2_fps_settings_helper_shape():
     s = cs2_fps_settings()
-    assert s["pcores_affinity"] is True
+    assert s["pcores_affinity"] is False  # excluded — starves CS2 E-cores → stutter
     assert s["timer_resolution"] is True
     assert s["power_plan"] is True
     assert s["nvidia_max_perf"] is True

@@ -41,15 +41,17 @@ class TestProfileManager:
 
     def test_cs2_stable_ping_profile_is_bound_to_cs2_exe(self, manager):
         """CS2 Stable Ping has no Vanguard constraint, so it carries the
-        broader auto-Game-Mode bundle: extended Wi-Fi (6 keys), FPS Booster
-        CPU/GPU rows, and Background Killer rows."""
+        broader auto-Game-Mode bundle: extended Wi-Fi (5 keys), FPS Booster
+        CPU/GPU rows, and Background Killer rows. ``throughput_booster`` and
+        ``pcores_affinity`` are excluded — both were confirmed stutter / ping-
+        spike sources for CS2 and stay manual-only."""
         manager.load_all()
         profile = manager.load_profile("CS2 Stable Ping")
         assert profile is not None
         assert profile["name"] == "CS2 Stable Ping"
         assert profile["game_list"] == ["cs2.exe"]
 
-        # Wi-Fi: Valorant's 4 keys + throughput_booster + disable_mimo_power_save
+        # Wi-Fi: Valorant's 4 keys + disable_mimo_power_save (no throughput_booster).
         wifi_enabled = {
             key for key, value in profile["wifi_optimizer"].items()
             if value is True and key != "enabled"
@@ -59,19 +61,19 @@ class TestProfileManager:
             "disable_interrupt_mod",
             "disable_power_saving",
             "max_tx_power",
-            "throughput_booster",
             "disable_mimo_power_save",
         }
+        assert profile["wifi_optimizer"].get("throughput_booster", False) is False
         assert profile["wifi_optimizer"]["enabled"] is True
 
         # FPS Booster: stutter-prevention bundle.
         fps = profile["fps_boost"]
-        assert fps["pcores_affinity"] is True
         assert fps["timer_resolution"] is True
         assert fps["power_plan"] is True
         assert fps["nvidia_max_perf"] is True
         assert fps["nvidia_ull"] is True
         # Excluded:
+        assert fps["pcores_affinity"] is False  # starves CS2 E-cores → stutter
         assert fps["disable_hags"] is False
         assert fps["visual_effects_off"] is False
         assert fps["enabled"] is True
