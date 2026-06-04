@@ -88,6 +88,24 @@ class _GpuTempPollWorker(QRunnable):
         except Exception:
             self.signals.temp.emit(-1)
 
+class _WifiRestartWorkerSignals(QObject):
+    finished = pyqtSignal(bool, str)   # (ok, error) from restart_adapter()
+
+class _WifiRestartWorker(QRunnable):
+    """Power-cycle the Wi-Fi adapter off the Qt main thread (blocks ~5-10 s)."""
+    def __init__(self, signals, driver_desc=None):
+        super().__init__()
+        self.signals = signals
+        self.driver_desc = driver_desc
+        self.setAutoDelete(True)
+    def run(self):
+        try:
+            from core.wifi_optimizer import restart_adapter
+            res = restart_adapter(self.driver_desc)
+            self.signals.finished.emit(bool(res.get("ok")), str(res.get("error", "")))
+        except Exception as exc:
+            self.signals.finished.emit(False, str(exc))
+
 
 class MainWindow(QMainWindow):
     def __init__(self, state_guard=None, profile_manager=None, parent=None):
@@ -107,6 +125,7 @@ class MainWindow(QMainWindow):
         self._game_mode_applied = False   # True only if Game Mode itself applied changes
         self._game_mode_pending = False   # latest value for debounce
         self._game_mode_dscp_policy: str | None = None   # active CS2-class DSCP policy name
+        self._pre_game_mode_settings = None   # tab toggle snapshot, restored on deactivate
         self._auto_game_mode = False      # mirrors tab_settings auto_game_mode checkbox
         self.tray = None                  # set by main.py after TrayIcon is created
 
@@ -118,6 +137,9 @@ class MainWindow(QMainWindow):
         self._ram_signals = _RamWorkerSignals()
         self._ram_signals.free_ram.connect(self._on_ram_poll_reading)
         self._ram_signals.freed.connect(self._on_ram_optimize_done)
+
+        self._wifi_restart_signals = _WifiRestartWorkerSignals()
+        self._wifi_restart_signals.finished.connect(self._on_wifi_restart_done)
 
         # Optimizer instances (lazy-created when needed)
         self._wifi_optimizer = None
@@ -575,6 +597,17 @@ class MainWindow(QMainWindow):
             )
             return
 
+        # Snapshot the user's current tab toggles once, before Game Mode
+        # overwrites them, so _deactivate_game_mode can put them back.  Guarded
+        # so a re-activate (without an intervening deactivate) can't clobber the
+        # real pre-game state.
+        if self._pre_game_mode_settings is None:
+            self._pre_game_mode_settings = {
+                "wifi": self.tab_wifi.get_settings(),
+                "fps": self.tab_fps.get_settings(),
+                "optimizer": self.tab_optimizer.get_settings(),
+            }
+
         any_succeeded = False
         failed_sections = []
         warning_messages = []
@@ -586,8 +619,10 @@ class MainWindow(QMainWindow):
                 wifi_succeeded, wifi_message = self._wifi_apply_outcome(backup)
                 if wifi_succeeded:
                     self._applied_settings["wifi"] = wifi_settings
+                    self.tab_wifi.set_settings(wifi_settings)
                     self.tab_wifi.mark_applied(wifi_settings)
                     any_succeeded = True
+                    self._maybe_restart_wifi_adapter(backup)
                     if wifi_message:
                         warning_messages.append(wifi_message)
                 else:
@@ -603,6 +638,7 @@ class MainWindow(QMainWindow):
                 fps_settings = plan["fps"]
                 self._apply_fps(fps_settings)
                 self._applied_settings["fps"] = fps_settings
+                self.tab_fps.set_settings(fps_settings)
                 self.tab_fps.mark_applied(fps_settings)
                 any_succeeded = True
             except Exception as e:
@@ -614,6 +650,7 @@ class MainWindow(QMainWindow):
                 optimizer_settings = plan["optimizer"]
                 self._apply_optimizer(optimizer_settings)
                 self._applied_settings["optimizer"] = optimizer_settings
+                self.tab_optimizer.set_settings(optimizer_settings)
                 self.tab_optimizer.mark_applied(optimizer_settings)
                 any_succeeded = True
             except Exception as e:
@@ -690,6 +727,22 @@ class MainWindow(QMainWindow):
                 self._game_mode_applied = False
             except Exception as e:
                 logger.error(f"restore_all failed: {e}")
+
+        # restore_all() undid the system changes — now put the tab toggles back
+        # to the user's pre-game selection and drop the now-stale Active badges
+        # so the UI reflects that nothing is applied any more.
+        snap = self._pre_game_mode_settings
+        if snap:
+            self.tab_wifi.set_settings(snap["wifi"])
+            self.tab_wifi.clear_applied()
+            self.tab_fps.set_settings(snap["fps"])
+            self.tab_fps.clear_applied()
+            self.tab_optimizer.set_settings(snap["optimizer"])
+            self.tab_optimizer.clear_applied()
+            self._applied_settings.clear()
+            self.tab_monitor.update_applied_settings(self._applied_settings)
+        self._pre_game_mode_settings = None
+
         self._toast.show_message("Game Mode: settings restored", "info")
 
     # -------------------------------------------------------- DSCP helpers
@@ -778,6 +831,7 @@ class MainWindow(QMainWindow):
                 self._toast.show_message(wifi_message, "warning", duration_ms=8000)
             self._applied_settings["wifi"] = settings
             self.tab_monitor.update_applied_settings(self._applied_settings)
+            self._maybe_restart_wifi_adapter(backup)
             if not backup.get("_adapter_found", True):
                 self._toast.show_message(
                     "Wi-Fi adapter key not found — LSO may still be active. "
@@ -805,6 +859,44 @@ class MainWindow(QMainWindow):
             logger.error(f"Wi-Fi apply error: {e}")
             self._set_status(f"Wi-Fi error: {e}")
             raise
+
+    def _maybe_restart_wifi_adapter(self, backup: dict) -> None:
+        """
+        Power-cycle the Wi-Fi adapter so the driver re-reads the values just
+        written — otherwise the registry changes never go live and ping spikes
+        persist.  Only fires when a value actually changed (no needless drops on
+        repeated identical applies).  Runs async; result handled in
+        :meth:`_on_wifi_restart_done`.
+        """
+        if not backup.get("_requires_restart"):
+            return
+        if not backup.get("_adapter_found", True):
+            return
+        self._toast.show_message(
+            "Activating Wi-Fi changes — adapter restarting (~5-10 s, brief Wi-Fi drop)…",
+            "info",
+            duration_ms=8000,
+        )
+        worker = _WifiRestartWorker(self._wifi_restart_signals, backup.get("_driver_desc"))
+        QThreadPool.globalInstance().start(worker)
+
+    @pyqtSlot(bool, str)
+    def _on_wifi_restart_done(self, ok: bool, error: str):
+        if ok:
+            self._set_status("Wi-Fi changes now live")
+            self._toast.show_message(
+                "Wi-Fi changes now live — anti-jitter tweaks active.",
+                "success",
+            )
+        else:
+            logger.warning(f"Wi-Fi adapter restart failed: {error}")
+            self._set_status("Wi-Fi adapter restart failed")
+            self._toast.show_message(
+                "Couldn't auto-restart Wi-Fi — disable/enable the adapter in "
+                "Device Manager, or reboot, to activate the changes.",
+                "warning",
+                duration_ms=8000,
+            )
 
     @pyqtSlot()
     def _on_wifi_restore(self):
@@ -1666,11 +1758,12 @@ class MainWindow(QMainWindow):
         patch = recommendation.get("settings_patch") or {}
         if target == "wifi":
             settings = merge_settings_patch(self.tab_wifi.get_settings(), patch)
-            self._apply_wifi(settings)
+            backup = self._apply_wifi(settings)
             self.tab_wifi.set_settings(settings)
             self.tab_wifi.mark_applied(settings)
             self.tab_wifi.show_apply_success()
             self._applied_settings["wifi"] = settings
+            self._maybe_restart_wifi_adapter(backup)
         elif target == "optimizer":
             settings = merge_settings_patch(self.tab_optimizer.get_settings(), patch)
             self._apply_optimizer(settings)
@@ -1736,9 +1829,11 @@ class MainWindow(QMainWindow):
             new_settings[key] = False
             apply_fn = apply_map.get(tab_name)
             if apply_fn:
-                apply_fn(new_settings)
+                result = apply_fn(new_settings)
                 self._applied_settings[tab_name] = new_settings
                 self.tab_monitor.update_applied_settings(self._applied_settings)
+                if tab_name == "wifi" and isinstance(result, dict):
+                    self._maybe_restart_wifi_adapter(result)
 
             display = risk.get("display", key)
             self._toast.show_message(f"'{display}' disabled and settings re-applied.", "success")

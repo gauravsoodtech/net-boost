@@ -47,6 +47,13 @@ def _new_apply_metadata(adapter_found: bool) -> dict:
         "_write_count": 0,
         "_verified_count": 0,
         "_failed_count": 0,
+        # Driver only re-reads these advanced params on a miniport reset.
+        # _changed_count counts verified writes whose value actually changed;
+        # _requires_restart tells the UI to power-cycle the adapter so the
+        # new values go live (a raw registry write alone does NOT take effect).
+        "_changed_count": 0,
+        "_requires_restart": False,
+        "_driver_desc": None,
     }
 
 
@@ -265,6 +272,10 @@ def apply(settings: dict) -> dict:
         if _values_match(actual, new_val):
             backup["_verified_values"].append(value_name)
             backup["_verified_count"] += 1
+            # Old value differs from the new one → the driver's cached config
+            # is now stale and needs a restart to pick this up.
+            if not _values_match(backup[value_name], new_val):
+                backup["_changed_count"] += 1
         else:
             backup["_failed_values"].append({
                 "name": value_name,
@@ -276,7 +287,12 @@ def apply(settings: dict) -> dict:
     backup["_adapter_key"] = adapter_key
     backup["_adapter_found"] = True
     backup["_failed_count"] = len(backup["_failed_values"])
-    logger.info("wifi_optimizer: %d tweak(s) applied.", len(tweaks))
+    backup["_driver_desc"] = _read_reg(adapter_key, "DriverDesc")
+    backup["_requires_restart"] = backup["_changed_count"] > 0
+    logger.info(
+        "wifi_optimizer: %d tweak(s) applied, %d changed (restart=%s).",
+        len(tweaks), backup["_changed_count"], backup["_requires_restart"],
+    )
     return backup
 
 
@@ -306,6 +322,58 @@ def restore(backup: dict) -> None:
                 pass
 
     logger.info("wifi_optimizer: registry values restored.")
+
+
+def restart_adapter(driver_desc: str | None = None) -> dict:
+    """
+    Power-cycle the Intel Wi-Fi adapter so the driver re-reads its registry
+    config.
+
+    The advanced parameters written by :func:`apply` (LSO, InterruptModeration,
+    PowerSavingMode, TxPower, …) are only read by the miniport driver at init
+    time — a raw registry write does NOT take effect until the adapter is reset.
+    This restart is what actually makes the anti-jitter tweaks go live.
+
+    Briefly drops the Wi-Fi link (~5-10 s); Windows auto-reconnects to the known
+    SSID afterwards.  Admin is required (already held by the app).
+
+    Returns ``{"ok": bool, "error": str}``.  Never raises — a failed or timed-out
+    restart is reported via ``ok=False`` so the caller can fall back to telling
+    the user to disable/enable the adapter manually (or reboot).
+    """
+    if driver_desc:
+        safe = str(driver_desc).replace("'", "''")
+        ps = f"Restart-NetAdapter -InterfaceDescription '{safe}' -Confirm:$false"
+    else:
+        ps = (
+            "Get-NetAdapter -Physical | "
+            "Where-Object { $_.InterfaceDescription -match 'Intel.*(Wi-Fi|Wireless|AX)' } | "
+            "Restart-NetAdapter -Confirm:$false"
+        )
+
+    no_window = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    try:
+        result = subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", ps],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            creationflags=no_window,
+        )
+    except subprocess.TimeoutExpired:
+        logger.error("wifi_optimizer: adapter restart timed out.")
+        return {"ok": False, "error": "restart timed out"}
+    except OSError as exc:
+        logger.error("wifi_optimizer: adapter restart could not launch: %s", exc)
+        return {"ok": False, "error": str(exc)}
+
+    if result.returncode == 0:
+        logger.info("wifi_optimizer: adapter restarted — driver re-read its config.")
+        return {"ok": True, "error": ""}
+
+    err = (result.stderr or result.stdout or "").strip() or f"exit code {result.returncode}"
+    logger.error("wifi_optimizer: adapter restart failed: %s", err)
+    return {"ok": False, "error": err}
 
 
 def get_current_band() -> str:
@@ -367,6 +435,9 @@ class WifiOptimizer:
 
     def restore(self, backup: dict) -> None:
         restore(backup)
+
+    def restart_adapter(self, driver_desc: str | None = None) -> dict:
+        return restart_adapter(driver_desc)
 
     def get_current_band(self) -> str:
         return get_current_band()

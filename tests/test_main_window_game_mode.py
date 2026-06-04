@@ -15,8 +15,14 @@ class _DummyTab:
     def get_settings(self):
         return dict(self._settings)
 
+    def set_settings(self, settings):
+        self._settings.update({k: bool(v) for k, v in settings.items()})
+
     def mark_applied(self, settings):
         self.marked = dict(settings)
+
+    def clear_applied(self):
+        self.marked = None
 
 
 class _DummyMonitor:
@@ -86,6 +92,7 @@ def _window_for_game_mode():
     window._game_mode_applied = False
     window._game_mode_active = False
     window._game_mode_pending = False
+    window._pre_game_mode_settings = None
     window._current_game = None
     window._current_game_pid = 0
     window.process_watcher = None

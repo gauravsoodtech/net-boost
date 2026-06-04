@@ -2,15 +2,20 @@
 Stable-ping Game Mode policy.
 
 This module keeps game-session defaults separate from the visible tab state.
-Each supported game declares which Wi-Fi / FPS / Optimizer keys Game Mode
-should flip on when that game is detected.
+Each supported game declares which Wi-Fi keys Game Mode should flip on when
+that game is detected.
 
-VALORANT is deliberately conservative: only the 4-key Wi-Fi latency subset is
-applied automatically because Vanguard's kernel anti-cheat mistrusts wider
-surfaces.  CS2 has no such constraint (pure UDP, no kernel driver), so its
-auto plan includes the stutter-prevention FPS bundle and the
-background-bandwidth Optimizer bundle in addition to a slightly wider Wi-Fi
-subset and a per-app DSCP EF (46) QoS policy.
+Both supported games are intentionally **Wi-Fi-only**: Game Mode auto-apply
+never touches the FPS Booster, the Optimizer, or per-app QoS for them.  Those
+levers stay manual (available in their tabs and in saved profiles) because the
+goal of Stable Ping Mode is link-latency stability, not frame-rate or
+background tuning — and the FPS/GPU/DSCP knobs were a recurring source of
+stutter, thermal throttle, and confusion when applied automatically.
+
+VALORANT applies only the 4-key Wi-Fi latency subset because Vanguard's kernel
+anti-cheat mistrusts wider surfaces.  CS2 has no kernel driver, so it can use a
+slightly wider Wi-Fi subset (adds ``disable_mimo_power_save`` and
+``disable_bss_scan``), but it is still Wi-Fi-only by design.
 """
 
 from __future__ import annotations
@@ -19,14 +24,6 @@ from core import setting_keys
 
 STABLE_PING_GAME_EXES = frozenset({
     "valorant-win64-shipping.exe",
-    "cs2.exe",
-})
-
-# Games that additionally benefit from a per-app DSCP EF (46) QoS policy on
-# their executable.  Valorant is intentionally excluded — Vanguard's kernel
-# driver interferes with QoS hooks.  CS2 is pure UDP and has no anti-cheat
-# surface to worry about.
-DSCP_GAME_EXES = frozenset({
     "cs2.exe",
 })
 
@@ -74,63 +71,15 @@ CS2_WIFI_ENABLED_KEYS = frozenset(VALORANT_WIFI_ENABLED_KEYS | {
 })
 
 # ---------------------------------------------------------------------------
-# FPS Booster (CPU + GPU rows)
+# Canonical key-group re-exports
 # ---------------------------------------------------------------------------
 
+# Game Mode no longer auto-applies any FPS or Optimizer keys for stable-ping
+# games (both games are Wi-Fi-only).  These tuples are re-exported only so the
+# setting_keys single-source-of-truth cross-checks and external callers keep a
+# stable import path; they are not used to build any auto plan here.
 FPS_SETTING_KEYS = setting_keys.FPS_KEYS
-
-# Stutter-prevention bundle for CS2.  `disable_hags` requires a reboot to
-# take effect, so applying it mid-session does nothing useful and would only
-# add risk on the Restore path.  `visual_effects_off` is intentionally
-# excluded — it changes desktop animation globally, too invasive for an auto
-# plan.
-#
-# `pcores_affinity` is intentionally excluded: pinning CS2 to P-cores only
-# starves the E-core threads Source 2 uses for audio, networking, and shader
-# compilation, and the post-apply re-pin window (MainWindow) forces repeated
-# thread migrations — both produce micro-stutter (see core/settings_risk.py).
-# It stays available as a manual FPS toggle for users who want to pin manually.
-#
-# Both NVIDIA keys are excluded, so this bundle is pure CPU/Windows tweaks and
-# performs no NVIDIA registry writes on the apply or restore path:
-#   * `nvidia_max_perf` locks the RTX 4060 *Laptop* at its P0 max-clock state,
-#     which thermal-throttles after ~10 min; the resulting clock oscillation
-#     shows up as frame-time variance / stutter.
-#   * `nvidia_ull` (driver Ultra-Low-Latency / render-ahead trim) is redundant
-#     for CS2 — the game ships native NVIDIA Reflex, which supersedes the
-#     driver knob and paces the render queue better; at CS2's CPU-bound high
-#     frame rates the driver setting is effectively a no-op.
-# Both stay available as manual FPS toggles.  With no NVIDIA keys active, CS2
-# Game Mode also skips the nvidia-smi GPU-temp poller (MainWindow gates it on
-# `nvidia_max_perf`/`nvidia_ull`).
-CS2_FPS_ENABLED_KEYS = frozenset({
-    "power_plan",
-    "timer_resolution",
-    "game_dvr_off",
-    "fullscreen_opt_off",
-    "sysmain_off",
-})
-
-# ---------------------------------------------------------------------------
-# Optimizer (Background Killer rows only — TCP/DNS deliberately excluded)
-# ---------------------------------------------------------------------------
-
-# System Tweaks (force_msi_mode / disable_ndu / disable_network_throttling) are
-# part of OPTIMIZER_KEYS but require reboot, so they stay opt-in — deliberately
-# excluded from CS2_OPTIMIZER_ENABLED_KEYS until the user has reboot-validated
-# them once. Adding them to the auto bundle for CS2 is a future-PR step.
 OPTIMIZER_SETTING_KEYS = setting_keys.OPTIMIZER_KEYS
-
-# Background-bandwidth bundle for CS2.  `pause_telemetry` catches DiagTrack,
-# the most common silent ping-spike source on a clean Win11 install.  TCP
-# tweaks are excluded because CS2 is UDP — they would do nothing for the
-# live game traffic and only clutter the applied-badges UI.
-CS2_OPTIMIZER_ENABLED_KEYS = frozenset({
-    "pause_windows_update",
-    "pause_onedrive",
-    "pause_bits",
-    "pause_telemetry",
-})
 
 
 # ---------------------------------------------------------------------------
@@ -144,13 +93,6 @@ def is_stable_ping_game(exe_name: str | None) -> bool:
     return exe_name.lower() in STABLE_PING_GAME_EXES
 
 
-def is_dscp_game(exe_name: str | None) -> bool:
-    """Return True when *exe_name* should receive an auto DSCP policy."""
-    if not exe_name:
-        return False
-    return exe_name.lower() in DSCP_GAME_EXES
-
-
 def stable_ping_wifi_settings() -> dict[str, bool]:
     """Return the conservative Wi-Fi settings used by Valorant Stable Ping."""
     return {key: key in VALORANT_WIFI_ENABLED_KEYS for key in WIFI_SETTING_KEYS}
@@ -159,16 +101,6 @@ def stable_ping_wifi_settings() -> dict[str, bool]:
 def cs2_wifi_settings() -> dict[str, bool]:
     """Return the CS2 Wi-Fi bundle (Valorant subset + MIMO / BSS-scan keys)."""
     return {key: key in CS2_WIFI_ENABLED_KEYS for key in WIFI_SETTING_KEYS}
-
-
-def cs2_fps_settings() -> dict[str, bool]:
-    """Return the CS2 FPS Booster bundle (CPU/Windows tweaks only)."""
-    return {key: key in CS2_FPS_ENABLED_KEYS for key in FPS_SETTING_KEYS}
-
-
-def cs2_optimizer_settings() -> dict[str, bool]:
-    """Return the CS2 Optimizer bundle (Background Killer rows only)."""
-    return {key: key in CS2_OPTIMIZER_ENABLED_KEYS for key in OPTIMIZER_SETTING_KEYS}
 
 
 # ---------------------------------------------------------------------------
@@ -184,19 +116,14 @@ def build_game_mode_plan(
     """
     Build the settings sections Game Mode should apply for *exe_name*.
 
-    Stable-ping games get a curated per-game bundle.  When no game is
-    running, Game Mode stays armed and applies nothing.  Other detected
-    games keep the legacy configured-tab behavior for compatibility.
+    Stable-ping games get a Wi-Fi-only bundle (CS2 a slightly wider Wi-Fi
+    subset than Valorant).  When no game is running, Game Mode stays armed and
+    applies nothing.  Other detected games keep the legacy configured-tab
+    behavior for compatibility.
     """
     if is_stable_ping_game(exe_name):
-        lowered = exe_name.lower()
-        if lowered == "cs2.exe":
-            return {
-                "wifi":      cs2_wifi_settings(),
-                "fps":       cs2_fps_settings(),
-                "optimizer": cs2_optimizer_settings(),
-                "dscp":      {"dscp_value": 46},
-            }
+        if exe_name.lower() == "cs2.exe":
+            return {"wifi": cs2_wifi_settings()}
         # Valorant and any other future conservative game.
         return {"wifi": stable_ping_wifi_settings()}
 

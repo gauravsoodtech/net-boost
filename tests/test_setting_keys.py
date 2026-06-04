@@ -64,10 +64,10 @@ def test_stable_ping_policy_reexports_canonical_tuples():
 
 
 def test_game_mode_enabled_subsets_are_within_canonical_keys():
+    # Stable-ping Game Mode is Wi-Fi-only for both games — no FPS/Optimizer
+    # auto-bundles remain to cross-check.
     assert policy.VALORANT_WIFI_ENABLED_KEYS <= set(sk.WIFI_KEYS)
     assert policy.CS2_WIFI_ENABLED_KEYS <= set(sk.WIFI_KEYS)
-    assert policy.CS2_FPS_ENABLED_KEYS <= set(sk.FPS_KEYS)
-    assert policy.CS2_OPTIMIZER_ENABLED_KEYS <= set(sk.OPTIMIZER_KEYS)
 
 
 # ------------------------------------------------------------- settings_risk

@@ -53,12 +53,12 @@ class TestProfileManager:
         assert "Default" in profiles
 
     def test_cs2_stable_ping_profile_is_bound_to_cs2_exe(self, manager):
-        """CS2 Stable Ping has no Vanguard constraint, so it carries the
-        broader auto-Game-Mode bundle: extended Wi-Fi (6 keys), FPS Booster
-        CPU/Windows rows, and Background Killer rows. ``throughput_booster``,
-        ``pcores_affinity`` and both NVIDIA keys are excluded — confirmed
-        stutter / ping-spike sources (or redundant) for CS2 and stay
-        manual-only."""
+        """CS2 Stable Ping is Wi-Fi-only by design — it carries the extended
+        6-key Wi-Fi bundle (Valorant's 4 keys + ``disable_mimo_power_save`` +
+        ``disable_bss_scan``) and nothing else.  FPS Booster, Optimizer, and
+        Background Killer stay off; ``throughput_booster`` is excluded too
+        (confirmed ping-spike source).  The goal is link-latency stability,
+        not frame-rate or background tuning."""
         manager.load_all()
         profile = manager.load_profile("CS2 Stable Ping")
         assert profile is not None
@@ -82,25 +82,17 @@ class TestProfileManager:
         assert profile["wifi_optimizer"].get("throughput_booster", False) is False
         assert profile["wifi_optimizer"]["enabled"] is True
 
-        # FPS Booster: stutter-prevention bundle (CPU/Windows only — no NVIDIA).
-        fps = profile["fps_boost"]
-        assert fps["timer_resolution"] is True
-        assert fps["power_plan"] is True
-        # Excluded:
-        assert fps["nvidia_ull"] is False        # redundant with CS2's native Reflex
-        assert fps["pcores_affinity"] is False   # starves CS2 E-cores → stutter
-        assert fps["nvidia_max_perf"] is False   # RTX 4060 Laptop thermal-throttle → stutter
-        assert fps["disable_hags"] is False
-        assert fps["visual_effects_off"] is False
-        assert fps["enabled"] is True
-
-        # Background Killer: bandwidth-protection bundle.
-        bg = profile["background_killer"]
-        assert bg["pause_windows_update"] is True
-        assert bg["pause_onedrive"] is True
-        assert bg["pause_bits"] is True
-        assert bg["pause_telemetry"] is True
-        assert bg["enabled"] is True
+        # FPS Booster, Optimizer, and Background Killer are all OFF — Wi-Fi-only.
+        assert profile["fps_boost"]["enabled"] is False
+        assert all(
+            value is False
+            for key, value in profile["fps_boost"].items()
+            if key != "enabled"
+        )
+        assert profile["background_killer"]["enabled"] is False
+        assert profile["tcp_optimizer"]["enabled"] is False
+        assert profile["dns"]["switch_dns"] is False
+        assert profile["nvidia_optimizer"]["enabled"] is False
 
     def test_load_all_adds_missing_builtins_without_overwriting_user_profiles(self, manager):
         """Existing profile folders should still receive newly-added built-ins."""

@@ -14,8 +14,6 @@ import os
 import shutil
 
 from core.stable_ping_policy import (
-    cs2_fps_settings,
-    cs2_optimizer_settings,
     cs2_wifi_settings,
     stable_ping_wifi_settings,
 )
@@ -169,22 +167,16 @@ def _build_valorant_stable_ping_profile() -> dict:
 
 
 def _build_cs2_stable_ping_profile() -> dict:
-    """CS2 has no kernel anti-cheat, so its profile mirrors the richer Game
-    Mode auto plan: extended Wi-Fi, FPS Booster CPU/GPU rows, and the four
-    Background Killer rows.  Loading this profile manually gives the user
-    the same coverage as launching CS2 with Game Mode on."""
+    """CS2 Stable Ping is Wi-Fi-only by design, matching the CS2 Game Mode auto
+    plan: the extended 6-key Wi-Fi bundle (Valorant's 4 keys plus
+    ``disable_mimo_power_save`` and ``disable_bss_scan``) and nothing else.
+    FPS Booster, Optimizer, and QoS levers stay manual — the goal of Stable
+    Ping Mode is link-latency stability, not frame-rate or background tuning."""
     p = _build_gaming_profile()
     p["name"] = "CS2 Stable Ping"
     p["game_list"] = ["cs2.exe"]
     p["wifi_optimizer"].update(cs2_wifi_settings())
     p["wifi_optimizer"]["enabled"] = True
-    p["fps_boost"].update(cs2_fps_settings())
-    p["fps_boost"]["enabled"] = True
-    bg_keys = ("pause_windows_update", "pause_onedrive", "pause_bits", "pause_telemetry")
-    cs2_opt = cs2_optimizer_settings()
-    for key in bg_keys:
-        p["background_killer"][key] = cs2_opt[key]
-    p["background_killer"]["enabled"] = True
     return p
 
 

@@ -1,10 +1,14 @@
 """
 Tests for the CS2-specific MainWindow Game Mode wiring.
 
-CS2 has no kernel anti-cheat, so its auto plan covers all four sections:
-Wi-Fi (6-key bundle), FPS Booster (CPU/Windows only — no NVIDIA keys),
-Background Killer (4 services), and a per-app DSCP EF (46) QoS policy.
-Valorant must never enter the wider paths.
+CS2 is Wi-Fi-only: its auto plan applies only the extended 6-key Wi-Fi bundle.
+FPS Booster, Optimizer (background killer / TCP / DNS), and the per-app DSCP
+QoS policy are NOT auto-applied — they stay manual.  Valorant stays on its
+narrower 4-key Wi-Fi subset.
+
+The MainWindow still carries the DSCP teardown machinery (it is correct
+defensive cleanup), so the deactivate tests below set a policy directly to
+exercise it; the live plan simply never sets one anymore.
 """
 
 from unittest.mock import MagicMock, patch
@@ -21,7 +25,6 @@ from tests.test_main_window_game_mode import _window_for_game_mode
 @pytest.fixture
 def cs2_window():
     window = _window_for_game_mode()
-    # CS2 path requires a non-None state_guard so add_qos_policy is exercised.
     window.state_guard = MagicMock()
     window._current_game_pid = 4242
     window._game_mode_dscp_policy = None
@@ -29,178 +32,93 @@ def cs2_window():
 
 
 # ---------------------------------------------------------------------------
-# Wi-Fi section
+# Wi-Fi section — the only thing CS2 auto-applies
 # ---------------------------------------------------------------------------
 
 def test_cs2_game_mode_applies_extended_wifi_bundle(cs2_window):
     from core.stable_ping_policy import cs2_wifi_settings
 
-    with patch("psutil.Process") as proc_cls, \
-         patch("core.bandwidth_manager.apply_dscp_policy", return_value=True), \
-         patch("core.bandwidth_manager._sanitise_name", return_value="cs2_x"):
-        proc_cls.return_value.exe.return_value = r"C:\Steam\cs2\bin\cs2.exe"
-        MainWindow._activate_game_mode(cs2_window, "cs2.exe")
+    MainWindow._activate_game_mode(cs2_window, "cs2.exe")
 
     cs2_window._apply_wifi.assert_called_once_with(cs2_wifi_settings())
 
 
-# ---------------------------------------------------------------------------
-# FPS section — primary cause of stutters
-# ---------------------------------------------------------------------------
+def test_cs2_game_mode_syncs_wifi_toggles_to_badges(cs2_window):
+    """The reported bug: Game Mode lit the 'Active' badge but never moved the
+    toggle switch.  After activate, the switches must match the applied policy
+    (so badge ⟺ toggle)."""
+    from core.stable_ping_policy import cs2_wifi_settings
 
-def test_cs2_game_mode_applies_fps_bundle(cs2_window):
-    from core.stable_ping_policy import cs2_fps_settings
+    MainWindow._activate_game_mode(cs2_window, "cs2.exe")
 
-    with patch("psutil.Process") as proc_cls, \
-         patch("core.bandwidth_manager.apply_dscp_policy", return_value=True), \
-         patch("core.bandwidth_manager._sanitise_name", return_value="cs2_x"):
-        proc_cls.return_value.exe.return_value = r"C:\cs2.exe"
-        MainWindow._activate_game_mode(cs2_window, "cs2.exe")
-
-    cs2_window._apply_fps.assert_called_once_with(cs2_fps_settings())
+    assert cs2_window.tab_wifi.get_settings() == cs2_wifi_settings()
+    assert cs2_window.tab_wifi.marked == cs2_wifi_settings()
 
 
-def test_cs2_game_mode_does_not_start_gpu_temp_timer_no_nvidia_keys(cs2_window):
-    """The CS2 FPS bundle carries no NVIDIA keys (nvidia_max_perf and
-    nvidia_ull are both excluded), so there is no GPU clock-locking to
-    monitor — the nvidia-smi GPU-temp poller must stay stopped."""
-    with patch("psutil.Process") as proc_cls, \
-         patch("core.bandwidth_manager.apply_dscp_policy", return_value=True), \
-         patch("core.bandwidth_manager._sanitise_name", return_value="cs2_x"):
-        proc_cls.return_value.exe.return_value = r"C:\cs2.exe"
-        MainWindow._activate_game_mode(cs2_window, "cs2.exe")
+def test_cs2_deactivate_restores_pre_game_toggles_and_clears_badges(cs2_window):
+    pre_game = cs2_window.tab_wifi.get_settings()
+    cs2_window._game_mode_active = True
 
-    assert cs2_window._gpu_temp_timer.started is False
+    MainWindow._activate_game_mode(cs2_window, "cs2.exe")
+    # Toggles were overwritten by the policy and badges shown.
+    assert cs2_window.tab_wifi.get_settings() != pre_game
+    assert cs2_window.tab_wifi.marked is not None
 
+    MainWindow._deactivate_game_mode(cs2_window)
 
-def test_cs2_fps_bundle_excludes_nvidia_reboot_and_invasive_keys(cs2_window):
-    """Reboot-required / desktop-invasive / NVIDIA keys must stay manual."""
-    with patch("psutil.Process") as proc_cls, \
-         patch("core.bandwidth_manager.apply_dscp_policy", return_value=True), \
-         patch("core.bandwidth_manager._sanitise_name", return_value="cs2_x"):
-        proc_cls.return_value.exe.return_value = r"C:\cs2.exe"
-        MainWindow._activate_game_mode(cs2_window, "cs2.exe")
-
-    fps_call_args = cs2_window._apply_fps.call_args[0][0]
-    assert fps_call_args["disable_hags"] is False
-    assert fps_call_args["visual_effects_off"] is False
-    assert fps_call_args["nvidia_max_perf"] is False   # thermal-throttle → stutter
-    assert fps_call_args["nvidia_ull"] is False         # redundant with CS2's native Reflex
+    # Switches back to the user's pre-game selection, badges gone.
+    assert cs2_window.tab_wifi.get_settings() == pre_game
+    assert cs2_window.tab_wifi.marked is None
+    assert cs2_window._applied_settings == {}
+    assert cs2_window._pre_game_mode_settings is None
 
 
 # ---------------------------------------------------------------------------
-# Optimizer section — background bandwidth contention
+# FPS / Optimizer / DSCP must NOT be auto-applied for CS2
 # ---------------------------------------------------------------------------
 
-def test_cs2_game_mode_applies_background_killer_bundle(cs2_window):
-    from core.stable_ping_policy import cs2_optimizer_settings
+def test_cs2_game_mode_does_not_apply_fps_or_optimizer(cs2_window):
+    MainWindow._activate_game_mode(cs2_window, "cs2.exe")
 
-    with patch("psutil.Process") as proc_cls, \
-         patch("core.bandwidth_manager.apply_dscp_policy", return_value=True), \
-         patch("core.bandwidth_manager._sanitise_name", return_value="cs2_x"):
-        proc_cls.return_value.exe.return_value = r"C:\cs2.exe"
-        MainWindow._activate_game_mode(cs2_window, "cs2.exe")
-
-    cs2_window._apply_optimizer.assert_called_once_with(cs2_optimizer_settings())
+    cs2_window._apply_fps.assert_not_called()
+    cs2_window._apply_optimizer.assert_not_called()
 
 
-def test_cs2_optimizer_bundle_does_not_carry_tcp_keys(cs2_window):
-    """CS2 is UDP — TCP tweaks must not be in the auto plan."""
-    with patch("psutil.Process") as proc_cls, \
-         patch("core.bandwidth_manager.apply_dscp_policy", return_value=True), \
-         patch("core.bandwidth_manager._sanitise_name", return_value="cs2_x"):
-        proc_cls.return_value.exe.return_value = r"C:\cs2.exe"
-        MainWindow._activate_game_mode(cs2_window, "cs2.exe")
-
-    opt_call_args = cs2_window._apply_optimizer.call_args[0][0]
-    assert opt_call_args["tcp_no_delay"] is False
-    assert opt_call_args["tcp_ack_freq"] is False
-    assert opt_call_args["tcp_window_scale"] is False
-    assert opt_call_args["switch_dns"] is False
-    assert opt_call_args["pause_telemetry"] is True
-
-
-# ---------------------------------------------------------------------------
-# Monitor tab integration
-# ---------------------------------------------------------------------------
-
-def test_cs2_game_mode_populates_monitor_with_all_four_sections(cs2_window):
-    with patch("psutil.Process") as proc_cls, \
-         patch("core.bandwidth_manager.apply_dscp_policy", return_value=True), \
-         patch("core.bandwidth_manager._sanitise_name", return_value="cs2_x"):
-        proc_cls.return_value.exe.return_value = r"C:\cs2.exe"
-        MainWindow._activate_game_mode(cs2_window, "cs2.exe")
-
-    # DSCP is tracked separately via _game_mode_dscp_policy, not in
-    # _applied_settings (which is per-tab).  The three tab sections should
-    # all be present.
-    assert set(cs2_window._applied_settings) == {"wifi", "fps", "optimizer"}
-    assert cs2_window._game_mode_dscp_policy == "NetBoost_cs2_x"
-
-
-# ---------------------------------------------------------------------------
-# DSCP section (unchanged behaviour — kept from prior session)
-# ---------------------------------------------------------------------------
-
-def test_cs2_game_mode_creates_dscp_policy(cs2_window):
-    with patch("psutil.Process") as proc_cls, \
-         patch("core.bandwidth_manager.apply_dscp_policy", return_value=True) as apply_dscp, \
-         patch("core.bandwidth_manager._sanitise_name", return_value="cs2_deadbeef"):
-        proc_cls.return_value.exe.return_value = r"C:\Steam\cs2\bin\cs2.exe"
-        MainWindow._activate_game_mode(cs2_window, "cs2.exe")
-
-    apply_dscp.assert_called_once_with(
-        "NetBoost_cs2_deadbeef", r"C:\Steam\cs2\bin\cs2.exe", 46
-    )
-    cs2_window.state_guard.add_qos_policy.assert_called_once_with("NetBoost_cs2_deadbeef")
-    assert cs2_window._game_mode_dscp_policy == "NetBoost_cs2_deadbeef"
-    assert cs2_window._game_mode_applied is True
-
-
-def test_cs2_game_mode_skips_dscp_when_pid_unknown(cs2_window):
-    cs2_window._current_game_pid = 0
-
+def test_cs2_game_mode_does_not_create_dscp_policy(cs2_window):
     with patch("core.bandwidth_manager.apply_dscp_policy") as apply_dscp:
         MainWindow._activate_game_mode(cs2_window, "cs2.exe")
 
     apply_dscp.assert_not_called()
+    cs2_window.state_guard.add_qos_policy.assert_not_called()
     assert cs2_window._game_mode_dscp_policy is None
-    # Wi-Fi / FPS / Optimizer all still applied so game mode stays active.
+    # Wi-Fi still applied, so game mode is active.
     assert cs2_window._game_mode_applied is True
-    cs2_window._apply_fps.assert_called_once()
-    cs2_window._apply_optimizer.assert_called_once()
 
 
-def test_cs2_game_mode_skips_dscp_when_exe_path_unavailable(cs2_window):
-    import psutil
+def test_cs2_game_mode_does_not_start_gpu_temp_timer(cs2_window):
+    """No NVIDIA keys are applied (no FPS bundle at all), so the nvidia-smi
+    GPU-temp poller must stay stopped."""
+    MainWindow._activate_game_mode(cs2_window, "cs2.exe")
 
-    with patch("psutil.Process", side_effect=psutil.NoSuchProcess(4242)), \
-         patch("core.bandwidth_manager.apply_dscp_policy") as apply_dscp:
-        MainWindow._activate_game_mode(cs2_window, "cs2.exe")
+    assert cs2_window._gpu_temp_timer.started is False
 
-    apply_dscp.assert_not_called()
+
+# ---------------------------------------------------------------------------
+# Monitor tab integration — only the Wi-Fi section is populated
+# ---------------------------------------------------------------------------
+
+def test_cs2_game_mode_populates_monitor_with_wifi_only(cs2_window):
+    MainWindow._activate_game_mode(cs2_window, "cs2.exe")
+
+    assert set(cs2_window._applied_settings) == {"wifi"}
     assert cs2_window._game_mode_dscp_policy is None
 
 
-def test_cs2_dscp_apply_failure_does_not_break_other_sections(cs2_window):
-    with patch("psutil.Process") as proc_cls, \
-         patch("core.bandwidth_manager.apply_dscp_policy", return_value=False), \
-         patch("core.bandwidth_manager._sanitise_name", return_value="cs2_x"):
-        proc_cls.return_value.exe.return_value = r"C:\cs2.exe"
-        MainWindow._activate_game_mode(cs2_window, "cs2.exe")
+# ---------------------------------------------------------------------------
+# Valorant must stay narrow
+# ---------------------------------------------------------------------------
 
-    # Wi-Fi / FPS / Optimizer still applied; DSCP did not stick.
-    assert cs2_window._game_mode_dscp_policy is None
-    assert cs2_window._game_mode_applied is True
-    cs2_window._apply_wifi.assert_called_once()
-    cs2_window._apply_fps.assert_called_once()
-    cs2_window._apply_optimizer.assert_called_once()
-    # state_guard records BEFORE the apply attempt for crash-safety.
-    cs2_window.state_guard.add_qos_policy.assert_called_once()
-
-
-def test_valorant_game_mode_never_enters_cs2_paths(cs2_window):
-    """Valorant must not regress into DSCP / FPS / Optimizer auto-apply."""
+def test_valorant_game_mode_stays_wifi_only(cs2_window):
     with patch("core.bandwidth_manager.apply_dscp_policy") as apply_dscp:
         MainWindow._activate_game_mode(cs2_window, "VALORANT-Win64-Shipping.exe")
 
@@ -210,6 +128,10 @@ def test_valorant_game_mode_never_enters_cs2_paths(cs2_window):
     cs2_window._apply_fps.assert_not_called()
     cs2_window._apply_optimizer.assert_not_called()
 
+
+# ---------------------------------------------------------------------------
+# DSCP teardown machinery (still present as defensive cleanup)
+# ---------------------------------------------------------------------------
 
 def test_deactivate_game_mode_removes_dscp_policy(cs2_window):
     cs2_window._game_mode_dscp_policy = "NetBoost_cs2_foo"
@@ -223,8 +145,8 @@ def test_deactivate_game_mode_removes_dscp_policy(cs2_window):
 
 
 def test_deactivate_removes_dscp_even_when_other_sections_failed(cs2_window):
-    """Edge case: DSCP succeeded but the other applies failed.
-    _game_mode_applied is False, but the QoS policy must still come down."""
+    """Edge case: a DSCP policy exists but the apply flow never flagged
+    _game_mode_applied.  The QoS policy must still come down."""
     cs2_window._game_mode_dscp_policy = "NetBoost_cs2_x"
     cs2_window._game_mode_applied = False
 
@@ -235,13 +157,13 @@ def test_deactivate_removes_dscp_even_when_other_sections_failed(cs2_window):
     assert cs2_window._game_mode_dscp_policy is None
 
 
+# ---------------------------------------------------------------------------
+# Toast labelling
+# ---------------------------------------------------------------------------
+
 def test_cs2_stable_ping_toast_uses_cs2_label(cs2_window):
     """Stable-ping toast must say CS2, not VALORANT."""
-    with patch("psutil.Process") as proc_cls, \
-         patch("core.bandwidth_manager.apply_dscp_policy", return_value=True), \
-         patch("core.bandwidth_manager._sanitise_name", return_value="x"):
-        proc_cls.return_value.exe.return_value = r"C:\cs2.exe"
-        MainWindow._activate_game_mode(cs2_window, "cs2.exe")
+    MainWindow._activate_game_mode(cs2_window, "cs2.exe")
 
     success_toasts = [m for m in cs2_window._toast.messages if m[1] == "success"]
     assert success_toasts, "expected at least one success toast"
