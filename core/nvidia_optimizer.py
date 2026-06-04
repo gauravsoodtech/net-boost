@@ -10,7 +10,17 @@ import os
 import subprocess
 import winreg
 
+from core import apply_report
+
 logger = logging.getLogger(__name__)
+
+
+def _values_match(actual, expected) -> bool:
+    """Return True when a read-back registry value equals the requested int."""
+    try:
+        return int(actual) == int(expected)
+    except (TypeError, ValueError):
+        return False
 
 # ---------------------------------------------------------------------------
 # Common nvidia-smi search paths
@@ -200,7 +210,8 @@ def apply(settings: dict) -> dict:
 
     Returns a *backup* dict suitable for :func:`restore`.
     """
-    backup: dict = {"_registry": []}
+    backup: dict = {"_registry": [], "_verify": apply_report.new_report()}
+    report = backup["_verify"]
     gpu_key = get_gpu_registry_key()
 
     def _backup_and_write(subkey, vname, new_val):
@@ -211,8 +222,17 @@ def apply(settings: dict) -> dict:
         })
         try:
             _write_reg(winreg.HKEY_LOCAL_MACHINE, subkey, vname, new_val)
-        except OSError:
-            pass
+        except OSError as exc:
+            apply_report.record_failed(report, vname, new_val, original, f"write failed: {exc}")
+            return
+        # Read the value back: a write call can succeed yet not persist (policy,
+        # virtualization, a driver re-claiming the key), which would otherwise be
+        # a silent no-op.
+        actual = _read_reg(winreg.HKEY_LOCAL_MACHINE, subkey, vname)
+        if _values_match(actual, new_val):
+            apply_report.record_verified(report, vname)
+        else:
+            apply_report.record_failed(report, vname, new_val, actual, "readback mismatch")
 
     # --- Dynamic P-State ---
     if settings.get("dynamic_pstate_off"):
@@ -223,9 +243,18 @@ def apply(settings: dict) -> dict:
         _backup_and_write(_NVTWEAK_SOFTWARE, "ULMDMode", 1)
 
     # --- Max power / disable PowerMizer ---
-    if settings.get("max_power") and gpu_key:
-        for vname, new_val in (("PowerMizerEnable", 0), ("PowerMizerLevel", 1)):
-            _backup_and_write(gpu_key, vname, new_val)
+    if settings.get("max_power"):
+        if gpu_key:
+            for vname, new_val in (("PowerMizerEnable", 0), ("PowerMizerLevel", 1)):
+                _backup_and_write(gpu_key, vname, new_val)
+        else:
+            # max_power was requested but we never located the GPU registry key,
+            # so PowerMizer was never touched. Record it instead of skipping
+            # silently so the UI can warn the GPU tweak did not apply.
+            apply_report.record_failed(
+                report, "PowerMizerEnable", 0, None,
+                "NVIDIA GPU registry key not found",
+            )
 
     # --- Hardware-Accelerated GPU Scheduling (HAGS) ---
     # HwSchMode: 2 = enabled (default), 1 = disabled

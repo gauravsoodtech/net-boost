@@ -76,7 +76,7 @@ def test_apply_max_power_writes_powermizer_when_gpu_key_present(monkeypatch):
     assert ("GPU\\KEY", "PowerMizerLevel", 1) in writes
 
 
-def test_apply_max_power_skipped_when_no_gpu_key(monkeypatch):
+def test_apply_max_power_records_failure_when_no_gpu_key(monkeypatch):
     writes, _ = _patch_reg(monkeypatch)
     # get_gpu_registry_key already returns None via _patch_reg
 
@@ -84,6 +84,10 @@ def test_apply_max_power_skipped_when_no_gpu_key(monkeypatch):
 
     assert writes == []
     assert backup["_registry"] == []
+    # Previously a silent skip; now recorded so the UI can warn the GPU tweak
+    # did not apply.
+    assert backup["_verify"]["failed"] == 1
+    assert backup["_verify"]["failed_values"][0]["reason"] == "NVIDIA GPU registry key not found"
 
 
 def test_apply_disable_hags_writes_hwschmode(monkeypatch):
@@ -100,7 +104,70 @@ def test_apply_empty_settings_returns_empty_backup(monkeypatch):
     backup = nvidia_optimizer.apply({})
 
     assert writes == []
-    assert backup == {"_registry": []}
+    assert backup["_registry"] == []
+    assert backup["_verify"]["written"] == 0
+    assert backup["_verify"]["failed"] == 0
+
+
+# ── apply() read-back verification ───────────────────────────────────────────
+
+def _patch_reg_stateful(monkeypatch, initial=None):
+    """Registry seam whose writes persist, so read-back verification can pass."""
+    store = dict(initial or {})  # (subkey, value_name) -> value
+
+    monkeypatch.setattr(nvidia_optimizer, "_read_reg",
+                        lambda hive, subkey, vname: store.get((subkey, vname)))
+    monkeypatch.setattr(nvidia_optimizer, "_write_reg",
+                        lambda hive, subkey, vname, value: store.__setitem__((subkey, vname), value))
+    monkeypatch.setattr(nvidia_optimizer, "_delete_reg", lambda *a: None)
+    monkeypatch.setattr(nvidia_optimizer, "is_nvidia_smi_available", lambda: False)
+    monkeypatch.setattr(nvidia_optimizer, "get_gpu_registry_key", lambda: None)
+    return store
+
+
+def test_apply_verifies_writes_that_persist(monkeypatch):
+    _patch_reg_stateful(monkeypatch)
+
+    backup = nvidia_optimizer.apply({"ull_mode": True})
+
+    v = backup["_verify"]
+    assert v["written"] == 1
+    assert v["verified"] == 1
+    assert v["failed"] == 0
+    assert "ULMDMode" in v["verified_values"]
+
+
+def test_apply_records_readback_mismatch_when_write_does_not_stick(monkeypatch):
+    # Read returns the stale original; write is a no-op (does not persist).
+    store = {(nvidia_optimizer._NVTWEAK_SOFTWARE, "ULMDMode"): 0}
+    monkeypatch.setattr(nvidia_optimizer, "_read_reg",
+                        lambda hive, subkey, vname: store.get((subkey, vname)))
+    monkeypatch.setattr(nvidia_optimizer, "_write_reg", lambda *a: None)
+    monkeypatch.setattr(nvidia_optimizer, "is_nvidia_smi_available", lambda: False)
+    monkeypatch.setattr(nvidia_optimizer, "get_gpu_registry_key", lambda: None)
+
+    backup = nvidia_optimizer.apply({"ull_mode": True})
+
+    v = backup["_verify"]
+    assert v["verified"] == 0
+    assert v["failed"] == 1
+    assert v["failed_values"][0]["reason"] == "readback mismatch"
+
+
+def test_apply_records_write_failure_and_does_not_raise(monkeypatch):
+    def boom(hive, subkey, vname, value):
+        raise OSError("access denied")
+
+    monkeypatch.setattr(nvidia_optimizer, "_read_reg", lambda *a: None)
+    monkeypatch.setattr(nvidia_optimizer, "_write_reg", boom)
+    monkeypatch.setattr(nvidia_optimizer, "is_nvidia_smi_available", lambda: False)
+    monkeypatch.setattr(nvidia_optimizer, "get_gpu_registry_key", lambda: None)
+
+    backup = nvidia_optimizer.apply({"ull_mode": True})  # must not raise
+
+    v = backup["_verify"]
+    assert v["failed"] == 1
+    assert "write failed" in v["failed_values"][0]["reason"]
 
 
 def test_apply_runs_nvidia_smi_persistent_mode_when_available(monkeypatch):

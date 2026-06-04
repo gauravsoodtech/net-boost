@@ -854,7 +854,11 @@ class MainWindow(QMainWindow):
             self.tab_fps.set_settings(settings)
             self.tab_fps.mark_applied(settings)
             self.tab_fps.show_apply_success()
-            self._toast.show_message("FPS optimizations applied", "success")
+            gpu_warning = getattr(self, "_fps_verify_warning", "")
+            if gpu_warning:
+                self._toast.show_message(gpu_warning, "warning", duration_ms=8000)
+            else:
+                self._toast.show_message("FPS optimizations applied", "success")
             self._applied_settings["fps"] = settings
             self.tab_monitor.update_applied_settings(self._applied_settings)
             if settings.get("nvidia_max_perf") or settings.get("nvidia_ull"):
@@ -865,6 +869,7 @@ class MainWindow(QMainWindow):
             self._toast.show_message("FPS apply failed", "error")
 
     def _apply_fps(self, settings: dict):
+        self._fps_verify_warning = ""
         try:
             from core.fps_booster import FpsBooster
             if self._fps_booster is None:
@@ -900,6 +905,13 @@ class MainWindow(QMainWindow):
                     nvidia_backup = self._nvidia_optimizer.apply(nvidia_settings)
                     if self.state_guard:
                         self.state_guard.record_nvidia_backup(nvidia_backup)
+                    from core import apply_report
+                    _usable, _gpu_msg = apply_report.summarize(
+                        nvidia_backup.get("_verify", {}), "GPU"
+                    )
+                    if _gpu_msg:
+                        self._fps_verify_warning = _gpu_msg
+                        logger.warning("nvidia apply verification: %s", _gpu_msg)
                 except Exception as e:
                     logger.warning(f"NVIDIA optimizer apply failed: {e}")
 

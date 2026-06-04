@@ -14,6 +14,8 @@ import winreg
 
 import psutil
 
+from core import apply_report
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -187,12 +189,31 @@ def apply(settings: dict) -> dict:
     backup: dict = {
         "interfaces": {},   # {adapter_name: {value_name: (value, type) | None}}
         "global": {},       # {value_name: (value, type) | None}
+        "_verify": apply_report.new_report(),
     }
+    report = backup["_verify"]
 
     guids = get_interface_guids()
     if not guids:
         logger.warning("No matching interface GUIDs found; TCP optimisation skipped.")
+        apply_report.mark_target_missing(report)
         return backup
+
+    def _verified_write(key_path: str, value_name: str, new_val: int) -> None:
+        # _write_reg raises on OSError; catch it so one rejected write does not
+        # abort the rest, then read back to confirm the value actually persisted
+        # (a write call can succeed without the value sticking).
+        try:
+            _write_reg(key_path, value_name, new_val)
+        except OSError as exc:
+            apply_report.record_failed(report, value_name, new_val, None, f"write failed: {exc}")
+            return
+        actual = _read_reg(key_path, value_name)
+        actual_val = actual[0] if isinstance(actual, (tuple, list)) and actual else None
+        if actual_val == new_val:
+            apply_report.record_verified(report, value_name)
+        else:
+            apply_report.record_failed(report, value_name, new_val, actual_val, "readback mismatch")
 
     for adapter_name, key_path in guids.items():
         iface_backup: dict = {}
@@ -200,10 +221,10 @@ def apply(settings: dict) -> dict:
         # --- Nagle / ack-frequency tweaks ---
         if settings.get("tcp_ack_freq"):
             iface_backup["TcpAckFrequency"] = _read_reg(key_path, "TcpAckFrequency")
-            _write_reg(key_path, "TcpAckFrequency", 1)
+            _verified_write(key_path, "TcpAckFrequency", 1)
         if settings.get("tcp_no_delay"):
             iface_backup["TCPNoDelay"] = _read_reg(key_path, "TCPNoDelay")
-            _write_reg(key_path, "TCPNoDelay", 1)
+            _verified_write(key_path, "TCPNoDelay", 1)
 
         backup["interfaces"][adapter_name] = iface_backup
 
@@ -215,7 +236,7 @@ def apply(settings: dict) -> dict:
         # with no latency benefit when GlobalMaxTcpWindowSize is 65535.
         for value_name, new_val in (("Tcp1323Opts", 1), ("GlobalMaxTcpWindowSize", 65535)):
             global_backup[value_name] = _read_reg(_GLOBAL_KEY, value_name)
-            _write_reg(_GLOBAL_KEY, value_name, new_val)
+            _verified_write(_GLOBAL_KEY, value_name, new_val)
         backup["global"] = global_backup
 
     logger.info("TCP optimizations applied to %d interface(s).", len(guids))

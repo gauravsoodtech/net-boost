@@ -112,6 +112,13 @@ Match by `DriverDesc` containing `"Intel"` + `("Wi-Fi" or "AX" or "Wireless")`.
 3. Create a UI toggle in the relevant tab (or add a new tab in `ui/tab_*.py`)
 4. Wire the signal in `MainWindow._connect_signals()`
 5. Add a unit test in `tests/test_my_optimizer.py`
+6. If the optimizer writes the registry, **verify by read-back**: after each write,
+   read the value back and record the outcome in a `core/apply_report.py` report
+   stored under the backup's `_verify` key (Windows can accept a write that never
+   persists — a silent no-op). See `wifi_optimizer`, `nvidia_optimizer`,
+   `network_optimizer`. Surface failures with `apply_report.summarize(report, label)`
+   in the `_on_*_apply` handler (mirrors the GPU/Wi-Fi warning toasts). `_verify`
+   is `_`-prefixed so `restore()` loops skip it automatically.
 
 ---
 

@@ -109,7 +109,72 @@ def test_apply_returns_early_when_no_interface_guids(monkeypatch):
     backup = network_optimizer.apply({"tcp_no_delay": True, "window_scaling": True})
 
     assert writes == []
-    assert backup == {"interfaces": {}, "global": {}}
+    assert backup["interfaces"] == {}
+    assert backup["global"] == {}
+    # No adapters located -> the report flags the missing target so the UI can warn.
+    assert backup["_verify"]["target_found"] is False
+
+
+# ── apply() read-back verification ───────────────────────────────────────────
+
+def test_apply_verifies_writes_that_persist(monkeypatch):
+    iface_path = f"{network_optimizer.TCP_PARAMS_BASE}\\{{IFACE-1}}"
+    store: dict = {}
+
+    def fake_read(key_path, value_name):
+        return store.get((key_path, value_name))
+
+    def fake_write(key_path, value_name, value, value_type=winreg.REG_DWORD):
+        store[(key_path, value_name)] = (value, value_type)
+
+    monkeypatch.setattr(network_optimizer, "_read_reg", fake_read)
+    monkeypatch.setattr(network_optimizer, "_write_reg", fake_write)
+    monkeypatch.setattr(network_optimizer, "get_interface_guids", lambda: {"Wi-Fi": iface_path})
+
+    backup = network_optimizer.apply({"tcp_no_delay": True})
+
+    v = backup["_verify"]
+    assert v["written"] == 1
+    assert v["verified"] == 1
+    assert v["failed"] == 0
+
+
+def test_apply_records_readback_mismatch_when_write_does_not_stick(monkeypatch):
+    iface_path = f"{network_optimizer.TCP_PARAMS_BASE}\\{{IFACE-1}}"
+    # Write is a no-op -> read-back returns the stale original (0, not 1).
+    store = {(iface_path, "TCPNoDelay"): (0, winreg.REG_DWORD)}
+    monkeypatch.setattr(network_optimizer, "_read_reg",
+                        lambda key_path, value_name: store.get((key_path, value_name)))
+    monkeypatch.setattr(network_optimizer, "_write_reg", lambda *a, **kw: None)
+    monkeypatch.setattr(network_optimizer, "get_interface_guids", lambda: {"Wi-Fi": iface_path})
+
+    backup = network_optimizer.apply({"tcp_no_delay": True})
+
+    v = backup["_verify"]
+    assert v["verified"] == 0
+    assert v["failed"] == 1
+    assert v["failed_values"][0]["reason"] == "readback mismatch"
+
+
+def test_apply_records_write_failure_without_aborting_other_interfaces(monkeypatch):
+    guids = {
+        "Wi-Fi": f"{network_optimizer.TCP_PARAMS_BASE}\\{{IFACE-A}}",
+        "Ethernet": f"{network_optimizer.TCP_PARAMS_BASE}\\{{IFACE-B}}",
+    }
+
+    def boom(key_path, value_name, value, value_type=winreg.REG_DWORD):
+        raise OSError("denied")
+
+    monkeypatch.setattr(network_optimizer, "_read_reg", lambda *a, **kw: None)
+    monkeypatch.setattr(network_optimizer, "_write_reg", boom)
+    monkeypatch.setattr(network_optimizer, "get_interface_guids", lambda: dict(guids))
+
+    backup = network_optimizer.apply({"tcp_no_delay": True})  # must not raise
+
+    v = backup["_verify"]
+    assert v["written"] == 2 and v["failed"] == 2
+    # A failed write on one interface must not abort the others.
+    assert set(backup["interfaces"]) == set(guids)
 
 
 # ── restore() ────────────────────────────────────────────────────────────────
