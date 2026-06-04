@@ -132,3 +132,96 @@ class TestRestoreAnimations:
         from core.fps_booster import _restore_animations
         _restore_animations(1)
         mock_windll.user32.SystemParametersInfoW.assert_called_once()
+
+
+class TestApplyVerification:
+    """apply() records read-back / behavioural verification in backup['_verify'].
+
+    Affinity and timer resolution are deliberately excluded — affinity is
+    transient (the game re-pins itself) and timer resolution is a shared global
+    minimum, so read-back there would be misleading rather than useful.
+    """
+
+    @patch("core.fps_booster.set_power_plan")
+    @patch("core.fps_booster._ensure_ultimate_perf_plan", return_value="TARGET-GUID")
+    @patch("core.fps_booster.get_active_power_plan")
+    def test_power_plan_verified_when_active_scheme_matches(self, mock_get, mock_ensure, mock_set):
+        from core import fps_booster
+        mock_get.side_effect = ["ORIG-GUID", "TARGET-GUID"]  # original, then verify read
+        backup = fps_booster.apply({"power_plan": True})
+        v = backup["_verify"]
+        assert v["verified"] == 1 and v["failed"] == 0
+        assert "power_plan" in v["verified_values"]
+
+    @patch("core.fps_booster.set_power_plan")
+    @patch("core.fps_booster._ensure_ultimate_perf_plan", return_value="TARGET-GUID")
+    @patch("core.fps_booster.get_active_power_plan")
+    def test_power_plan_failed_when_scheme_did_not_change(self, mock_get, mock_ensure, mock_set):
+        from core import fps_booster
+        mock_get.side_effect = ["ORIG-GUID", "SOMETHING-ELSE"]
+        backup = fps_booster.apply({"power_plan": True})
+        v = backup["_verify"]
+        assert v["failed"] == 1
+        assert v["failed_values"][0]["reason"] == "active scheme did not change"
+
+    @patch("core.fps_booster._write_hkcu")
+    @patch("core.fps_booster._read_hkcu")
+    def test_game_dvr_verified_on_readback_zero(self, mock_read, mock_write):
+        import winreg
+        from core import fps_booster
+        mock_read.side_effect = [(1, winreg.REG_DWORD), (0, winreg.REG_DWORD)]  # prev, then verify
+        backup = fps_booster.apply({"game_dvr_off": True})
+        assert backup["_verify"]["verified"] == 1
+        assert backup["_verify"]["failed"] == 0
+
+    @patch("core.fps_booster._write_hkcu")
+    @patch("core.fps_booster._read_hkcu")
+    def test_game_dvr_failed_when_readback_nonzero(self, mock_read, mock_write):
+        import winreg
+        from core import fps_booster
+        mock_read.side_effect = [None, (1, winreg.REG_DWORD)]  # absent before, still 1 after
+        backup = fps_booster.apply({"game_dvr_off": True})
+        assert backup["_verify"]["failed"] == 1
+        assert backup["_verify"]["failed_values"][0]["reason"] == "readback mismatch"
+
+    @patch("core.fps_booster._sysmain_is_stopped", return_value=True)
+    @patch("core.fps_booster._stop_sysmain", return_value=True)
+    def test_sysmain_verified_when_service_stopped(self, mock_stop, mock_status):
+        from core import fps_booster
+        backup = fps_booster.apply({"sysmain_off": True})
+        assert backup["_verify"]["verified"] == 1
+
+    @patch("core.fps_booster._sysmain_is_stopped", return_value=None)
+    @patch("core.fps_booster._stop_sysmain", return_value=True)
+    def test_sysmain_unreadable_status_records_nothing(self, mock_stop, mock_status):
+        from core import fps_booster
+        backup = fps_booster.apply({"sysmain_off": True})
+        v = backup["_verify"]
+        assert v["written"] == 0 and v["verified"] == 0 and v["failed"] == 0
+
+    @patch("core.fps_booster._get_animation_state", return_value=0)
+    @patch("core.fps_booster._disable_animations", return_value=1)
+    def test_visual_effects_verified_when_animations_off(self, mock_disable, mock_state):
+        from core import fps_booster
+        backup = fps_booster.apply({"visual_effects_off": True})
+        assert backup["_verify"]["verified"] == 1
+
+    @patch("core.fps_booster._set_fullscreen_opt", return_value=None)
+    @patch("core.fps_booster._get_process_path", return_value=r"C:\game.exe")
+    @patch("core.fps_booster._read_hkcu")
+    def test_fullscreen_opt_verified_when_flag_present(self, mock_read, mock_path, mock_set):
+        import winreg
+        from core import fps_booster
+        mock_read.return_value = ("DISABLEDXMAXIMIZEDWINDOWEDMODE", winreg.REG_SZ)
+        backup = fps_booster.apply({"fullscreen_opt_off": True}, game_pid=1234)
+        assert backup["_verify"]["verified"] == 1
+
+    @patch("core.fps_booster.set_timer_resolution")
+    @patch("core.fps_booster.set_p_core_affinity", return_value=0xFF)
+    def test_affinity_and_timer_are_deliberately_not_verified(self, mock_aff, mock_timer):
+        from core import fps_booster
+        backup = fps_booster.apply(
+            {"pcores_affinity": True, "timer_resolution": True}, game_pid=1234
+        )
+        v = backup["_verify"]
+        assert v["written"] == 0 and v["verified"] == 0 and v["failed"] == 0

@@ -890,6 +890,12 @@ class MainWindow(QMainWindow):
             backup = self._fps_booster.apply(settings, game_pid=game_pid)
             if self.state_guard:
                 self.state_guard.record_fps_backup(backup)
+            from core import apply_report
+            _usable, _fps_msg = apply_report.summarize(backup.get("_verify", {}), "FPS")
+            if _fps_msg:
+                self._fps_verify_warning = "  ".join(
+                    x for x in (self._fps_verify_warning, _fps_msg) if x
+                )
 
             # Apply GPU settings via nvidia_optimizer (FPS tab GPU rows)
             if settings.get("nvidia_max_perf") or settings.get("nvidia_ull") or settings.get("disable_hags"):
@@ -910,7 +916,9 @@ class MainWindow(QMainWindow):
                         nvidia_backup.get("_verify", {}), "GPU"
                     )
                     if _gpu_msg:
-                        self._fps_verify_warning = _gpu_msg
+                        self._fps_verify_warning = "  ".join(
+                            x for x in (self._fps_verify_warning, _gpu_msg) if x
+                        )
                         logger.warning("nvidia apply verification: %s", _gpu_msg)
                 except Exception as e:
                     logger.warning(f"NVIDIA optimizer apply failed: {e}")
@@ -1019,7 +1027,11 @@ class MainWindow(QMainWindow):
             self.tab_optimizer.set_settings(settings)
             self.tab_optimizer.mark_applied(settings)
             self.tab_optimizer.show_apply_success()
-            self._toast.show_message("Network optimizations applied", "success")
+            tcp_warning = getattr(self, "_optimizer_verify_warning", "")
+            if tcp_warning:
+                self._toast.show_message(tcp_warning, "warning", duration_ms=8000)
+            else:
+                self._toast.show_message("Network optimizations applied", "success")
             self._applied_settings["optimizer"] = settings
             self.tab_monitor.update_applied_settings(self._applied_settings)
         except Exception as e:
@@ -1030,6 +1042,7 @@ class MainWindow(QMainWindow):
     def _apply_optimizer(self, settings: dict):
         from core.transaction import ApplyTransaction
 
+        self._optimizer_verify_warning = ""
         tx = ApplyTransaction()
 
         # TCP
@@ -1138,6 +1151,17 @@ class MainWindow(QMainWindow):
                 self.state_guard.record_ndu_backup(results["NDU"])
             if "Throttling" in results:
                 self.state_guard.record_throttling_backup(results["Throttling"])
+
+        # Surface TCP read-back verification (mirrors the GPU / Wi-Fi pattern):
+        # network_optimizer reports whether each registry write actually stuck.
+        if "TCP" in results:
+            from core import apply_report
+            _usable, _tcp_msg = apply_report.summarize(
+                results["TCP"].get("_verify", {}), "TCP"
+            )
+            if _tcp_msg:
+                self._optimizer_verify_warning = _tcp_msg
+                logger.warning("network apply verification: %s", _tcp_msg)
 
         # Reboot-required toast for the new System Tweaks group. Fire once,
         # only if any of the three actually ran this apply.

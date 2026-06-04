@@ -19,6 +19,8 @@ import winreg
 
 import psutil
 
+from core import apply_report
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -444,6 +446,18 @@ def _start_sysmain() -> None:
         logger.warning("fps_booster: could not start SysMain: %s", exc)
 
 
+def _sysmain_is_stopped() -> bool | None:
+    """Return True/False if SysMain is stopped, or None if its status can't be read."""
+    try:
+        import win32service
+        import win32serviceutil
+        state = win32serviceutil.QueryServiceStatus("SysMain")[1]
+        return state == win32service.SERVICE_STOPPED
+    except Exception as exc:
+        logger.warning("fps_booster: could not query SysMain status: %s", exc)
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Visual effects
 # ---------------------------------------------------------------------------
@@ -530,7 +544,8 @@ def apply(settings: dict, game_pid: int = None) -> dict:
 
     Returns a *backup* dict suitable for :func:`restore`.
     """
-    backup: dict = {}
+    backup: dict = {"_verify": apply_report.new_report()}
+    report = backup["_verify"]
 
     # --- Power plan ---
     if settings.get("power_plan"):
@@ -540,10 +555,22 @@ def apply(settings: dict, game_pid: int = None) -> dict:
             target_guid = _ensure_ultimate_perf_plan()
             set_power_plan(target_guid)
             backup["power_plan_applied"] = target_guid
+            active = get_active_power_plan()
+            if active == target_guid:
+                apply_report.record_verified(report, "power_plan")
+            else:
+                apply_report.record_failed(report, "power_plan", target_guid, active,
+                                           "active scheme did not change")
         except Exception as exc:
             logger.error("fps_booster: power plan change failed: %s", exc)
+            apply_report.record_failed(report, "power_plan", "ultimate", None, f"error: {exc}")
 
     # --- P-core affinity ---
+    # Deliberately NOT added to the verification report: the affinity we set is
+    # transient by design — Source 2 / many UE titles reset their own affinity a
+    # few seconds into init (hence MainWindow's re-pin window). An immediate
+    # read-back would "pass" yet not reflect steady state, so verifying it here
+    # would be misleading rather than useful.
     if settings.get("pcores_affinity") and game_pid is not None:
         try:
             old_mask = set_p_core_affinity(game_pid)
@@ -553,6 +580,11 @@ def apply(settings: dict, game_pid: int = None) -> dict:
             logger.error("fps_booster: affinity change failed for PID %d: %s", game_pid, exc)
 
     # --- Timer resolution ---
+    # Deliberately NOT added to the verification report: timer resolution is a
+    # system-wide shared minimum — the value Windows grants reflects every
+    # process's request, not just ours, so "did our 0.5 ms stick" is not a
+    # meaningful per-apply check. set_timer_resolution already raises on a bad
+    # NTSTATUS, which is the signal that matters.
     if settings.get("timer_resolution"):
         try:
             set_timer_resolution(5000)  # 0.5 ms
@@ -566,24 +598,45 @@ def apply(settings: dict, game_pid: int = None) -> dict:
             prev = _read_hkcu(_GAME_DVR_KEY, "AppCaptureEnabled")
             backup["game_dvr_prev"] = prev  # (value, type) or None
             _write_hkcu(_GAME_DVR_KEY, "AppCaptureEnabled", 0)
+            actual = _read_hkcu(_GAME_DVR_KEY, "AppCaptureEnabled")
+            actual_val = actual[0] if isinstance(actual, (tuple, list)) and actual else None
+            if actual_val == 0:
+                apply_report.record_verified(report, "game_dvr_off")
+            else:
+                apply_report.record_failed(report, "game_dvr_off", 0, actual_val, "readback mismatch")
         except Exception as exc:
             logger.error("fps_booster: Game DVR disable failed: %s", exc)
+            apply_report.record_failed(report, "game_dvr_off", 0, None, f"error: {exc}")
 
     # --- SysMain ---
     if settings.get("sysmain_off"):
         try:
             was_running = _stop_sysmain()
             backup["sysmain_was_running"] = was_running
+            stopped = _sysmain_is_stopped()
+            if stopped is True:
+                apply_report.record_verified(report, "sysmain_off")
+            elif stopped is False:
+                apply_report.record_failed(report, "sysmain_off", "stopped", "running",
+                                           "service still running")
+            # stopped is None -> status unreadable; record nothing either way
         except Exception as exc:
             logger.error("fps_booster: SysMain stop failed: %s", exc)
+            apply_report.record_failed(report, "sysmain_off", "stopped", None, f"error: {exc}")
 
     # --- Visual effects ---
     if settings.get("visual_effects_off"):
         try:
             prev_animate = _disable_animations()
             backup["visual_effects_prev"] = prev_animate
+            if _get_animation_state() == 0:
+                apply_report.record_verified(report, "visual_effects_off")
+            else:
+                apply_report.record_failed(report, "visual_effects_off", 0,
+                                           _get_animation_state(), "animations still enabled")
         except Exception as exc:
             logger.error("fps_booster: visual effects disable failed: %s", exc)
+            apply_report.record_failed(report, "visual_effects_off", 0, None, f"error: {exc}")
 
     # --- Fullscreen optimisation ---
     if settings.get("fullscreen_opt_off") and game_pid is not None:
@@ -592,8 +645,18 @@ def apply(settings: dict, game_pid: int = None) -> dict:
             prev_layer = _set_fullscreen_opt(game_exe, disable=True)
             backup["fullscreen_opt_game_exe"] = game_exe
             backup["fullscreen_opt_prev"]     = prev_layer
+            actual = _read_hkcu(_APP_COMPAT_LAYERS, game_exe)
+            actual_str = actual[0] if isinstance(actual, (tuple, list)) and actual else ""
+            if "DISABLEDXMAXIMIZEDWINDOWEDMODE" in (actual_str or ""):
+                apply_report.record_verified(report, "fullscreen_opt_off")
+            else:
+                apply_report.record_failed(report, "fullscreen_opt_off",
+                                           "DISABLEDXMAXIMIZEDWINDOWEDMODE", actual_str,
+                                           "flag not present after write")
         except Exception as exc:
             logger.error("fps_booster: fullscreen opt disable failed: %s", exc)
+            apply_report.record_failed(report, "fullscreen_opt_off",
+                                       "DISABLEDXMAXIMIZEDWINDOWEDMODE", None, f"error: {exc}")
 
     logger.info("fps_booster: apply() complete.")
     return backup
