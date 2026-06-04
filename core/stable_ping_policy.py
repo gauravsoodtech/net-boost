@@ -57,8 +57,17 @@ VALORANT_WIFI_ENABLED_KEYS = frozenset({
 # subset, which matches Valorant's needs.
 STABLE_PING_WIFI_ENABLED_KEYS = VALORANT_WIFI_ENABLED_KEYS
 
-# CS2 — Valorant subset plus the AX211-friendly MIMO key that Valorant
-# deliberately omits.  No Vanguard concerns here.
+# CS2 — Valorant subset plus two AX211-friendly keys Valorant deliberately
+# omits: `disable_mimo_power_save` (keeps all MIMO chains hot) and
+# `disable_bss_scan` (suppresses background channel scans).  No Vanguard
+# concerns here.
+#
+# `disable_bss_scan` directly targets stable ping: background BSS/channel scans
+# make the radio periodically leave its operating channel, producing recurring
+# ~50-150 ms airtime gaps that surface as periodic in-game ping spikes.  A CS2
+# match is a stationary, single-AP session, so there is no reason to scan
+# mid-game (same rationale as `minimize_roaming`).  Rated LOW risk in
+# core/settings_risk.py.
 #
 # `throughput_booster` is intentionally excluded: its packet-bursting behaviour
 # competes with latency stability and was a confirmed source of in-game ping
@@ -66,6 +75,7 @@ STABLE_PING_WIFI_ENABLED_KEYS = VALORANT_WIFI_ENABLED_KEYS
 # It stays available as a manual Wi-Fi toggle for users who want raw throughput.
 CS2_WIFI_ENABLED_KEYS = frozenset(VALORANT_WIFI_ENABLED_KEYS | {
     "disable_mimo_power_save",
+    "disable_bss_scan",
 })
 
 # ---------------------------------------------------------------------------
@@ -97,17 +107,24 @@ FPS_SETTING_KEYS = (
 # thread migrations — both produce micro-stutter (see core/settings_risk.py).
 # It stays available as a manual FPS toggle for users who want to pin manually.
 #
-# `nvidia_max_perf` is intentionally excluded: locking the RTX 4060 *Laptop*
-# at its P0 max-clock state makes it thermal-throttle after ~10 min, and the
-# resulting clock oscillation shows up as frame-time variance / stutter. The
-# low-risk `nvidia_ull` (render-ahead trim) is kept — it doesn't pin clocks.
+# Both NVIDIA keys are excluded, so this bundle is pure CPU/Windows tweaks and
+# performs no NVIDIA registry writes on the apply or restore path:
+#   * `nvidia_max_perf` locks the RTX 4060 *Laptop* at its P0 max-clock state,
+#     which thermal-throttles after ~10 min; the resulting clock oscillation
+#     shows up as frame-time variance / stutter.
+#   * `nvidia_ull` (driver Ultra-Low-Latency / render-ahead trim) is redundant
+#     for CS2 — the game ships native NVIDIA Reflex, which supersedes the
+#     driver knob and paces the render queue better; at CS2's CPU-bound high
+#     frame rates the driver setting is effectively a no-op.
+# Both stay available as manual FPS toggles.  With no NVIDIA keys active, CS2
+# Game Mode also skips the nvidia-smi GPU-temp poller (MainWindow gates it on
+# `nvidia_max_perf`/`nvidia_ull`).
 CS2_FPS_ENABLED_KEYS = frozenset({
     "power_plan",
     "timer_resolution",
     "game_dvr_off",
     "fullscreen_opt_off",
     "sysmain_off",
-    "nvidia_ull",
 })
 
 # ---------------------------------------------------------------------------
@@ -167,12 +184,12 @@ def stable_ping_wifi_settings() -> dict[str, bool]:
 
 
 def cs2_wifi_settings() -> dict[str, bool]:
-    """Return the CS2 Wi-Fi bundle (Valorant subset + throughput keys)."""
+    """Return the CS2 Wi-Fi bundle (Valorant subset + MIMO / BSS-scan keys)."""
     return {key: key in CS2_WIFI_ENABLED_KEYS for key in WIFI_SETTING_KEYS}
 
 
 def cs2_fps_settings() -> dict[str, bool]:
-    """Return the CS2 FPS Booster bundle (CPU pinning + NVIDIA P0)."""
+    """Return the CS2 FPS Booster bundle (CPU/Windows tweaks only)."""
     return {key: key in CS2_FPS_ENABLED_KEYS for key in FPS_SETTING_KEYS}
 
 

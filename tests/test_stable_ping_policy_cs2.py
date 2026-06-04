@@ -4,12 +4,14 @@ Tests for the CS2 extension of the stable-ping policy.
 CS2 has no kernel anti-cheat (Vanguard), so its Game Mode plan is broader
 than Valorant's:
 
-- Extended Wi-Fi bundle: Valorant's 4 keys plus ``disable_mimo_power_save``.
+- Extended Wi-Fi bundle: Valorant's 4 keys plus ``disable_mimo_power_save``
+  and ``disable_bss_scan`` (suppresses scan-induced periodic spikes).
   ``throughput_booster`` is excluded — its packet bursting causes ping spikes.
-- FPS Booster bundle (NVIDIA ULL + timer/power).  ``pcores_affinity``
-  (starves CS2 E-cores → stutter) and ``nvidia_max_perf`` (RTX 4060 Laptop
-  thermal-throttle → stutter) are excluded, as are ``disable_hags`` and
-  ``visual_effects_off``.
+- FPS Booster bundle (timer/power/DVR — CPU/Windows only).  Both NVIDIA keys
+  are excluded: ``nvidia_max_perf`` (RTX 4060 Laptop thermal-throttle →
+  stutter) and ``nvidia_ull`` (redundant with CS2's native Reflex).
+  ``pcores_affinity`` (starves CS2 E-cores → stutter), ``disable_hags`` and
+  ``visual_effects_off`` are excluded too.
 - Background Killer bundle (Windows Update, OneDrive, BITS, DiagTrack).
   TCP / DNS deliberately omitted — CS2 is UDP.
 - Per-app DSCP EF (46) QoS policy on ``cs2.exe``.
@@ -46,10 +48,13 @@ def test_cs2_is_a_dscp_game_but_valorant_is_not():
     assert is_dscp_game("") is False
 
 
-def test_cs2_wifi_bundle_extends_valorant_with_mimo_key_only():
+def test_cs2_wifi_bundle_extends_valorant_with_mimo_and_bss_scan_keys():
     assert CS2_WIFI_ENABLED_KEYS >= VALORANT_WIFI_ENABLED_KEYS
     extra = CS2_WIFI_ENABLED_KEYS - VALORANT_WIFI_ENABLED_KEYS
-    assert extra == {"disable_mimo_power_save"}
+    assert extra == {"disable_mimo_power_save", "disable_bss_scan"}
+    # disable_bss_scan suppresses background channel scans → kills periodic
+    # scan-induced ping spikes; LOW risk and safe for a stationary CS2 match.
+    assert "disable_bss_scan" in CS2_WIFI_ENABLED_KEYS
     # Excluded: packet bursting competes with latency stability → ping spikes.
     assert "throughput_booster" not in CS2_WIFI_ENABLED_KEYS
 
@@ -57,8 +62,8 @@ def test_cs2_wifi_bundle_extends_valorant_with_mimo_key_only():
 def test_cs2_fps_bundle_includes_stutter_keys_but_not_reboot_required_keys():
     # Stutter-prevention musts:
     assert {"timer_resolution", "power_plan"} <= CS2_FPS_ENABLED_KEYS
-    assert "nvidia_ull" in CS2_FPS_ENABLED_KEYS               # render-ahead trim, doesn't pin clocks
-    # Deliberately excluded:
+    # Deliberately excluded (pure CPU/Windows bundle — no NVIDIA keys):
+    assert "nvidia_ull" not in CS2_FPS_ENABLED_KEYS          # redundant with CS2's native Reflex
     assert "pcores_affinity" not in CS2_FPS_ENABLED_KEYS      # starves CS2 E-cores → stutter
     assert "nvidia_max_perf" not in CS2_FPS_ENABLED_KEYS      # RTX 4060 Laptop thermal-throttle → stutter
     assert "disable_hags" not in CS2_FPS_ENABLED_KEYS         # needs reboot
@@ -76,11 +81,13 @@ def test_cs2_optimizer_bundle_is_background_killer_only_no_tcp():
 
 def test_cs2_wifi_settings_helper_shape():
     s = cs2_wifi_settings()
-    # Five True keys (Valorant's 4 + disable_mimo_power_save), rest False.
+    # Six True keys (Valorant's 4 + disable_mimo_power_save + disable_bss_scan),
+    # rest False.
     assert {k for k, v in s.items() if v} == CS2_WIFI_ENABLED_KEYS
     assert s["disable_lso"] is True
     assert s["throughput_booster"] is False  # excluded — ping-spike source
     assert s["disable_mimo_power_save"] is True
+    assert s["disable_bss_scan"] is True  # suppresses scan-induced periodic spikes
     assert s["prefer_6ghz"] is False  # not in the auto bundle
 
 
@@ -90,7 +97,7 @@ def test_cs2_fps_settings_helper_shape():
     assert s["timer_resolution"] is True
     assert s["power_plan"] is True
     assert s["nvidia_max_perf"] is False  # excluded — RTX 4060 Laptop thermal-throttle → stutter
-    assert s["nvidia_ull"] is True
+    assert s["nvidia_ull"] is False  # excluded — redundant with CS2's native Reflex
     assert s["disable_hags"] is False
     assert s["visual_effects_off"] is False
 

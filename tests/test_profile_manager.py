@@ -41,17 +41,19 @@ class TestProfileManager:
 
     def test_cs2_stable_ping_profile_is_bound_to_cs2_exe(self, manager):
         """CS2 Stable Ping has no Vanguard constraint, so it carries the
-        broader auto-Game-Mode bundle: extended Wi-Fi (5 keys), FPS Booster
-        CPU/GPU rows, and Background Killer rows. ``throughput_booster`` and
-        ``pcores_affinity`` are excluded — both were confirmed stutter / ping-
-        spike sources for CS2 and stay manual-only."""
+        broader auto-Game-Mode bundle: extended Wi-Fi (6 keys), FPS Booster
+        CPU/Windows rows, and Background Killer rows. ``throughput_booster``,
+        ``pcores_affinity`` and both NVIDIA keys are excluded — confirmed
+        stutter / ping-spike sources (or redundant) for CS2 and stay
+        manual-only."""
         manager.load_all()
         profile = manager.load_profile("CS2 Stable Ping")
         assert profile is not None
         assert profile["name"] == "CS2 Stable Ping"
         assert profile["game_list"] == ["cs2.exe"]
 
-        # Wi-Fi: Valorant's 4 keys + disable_mimo_power_save (no throughput_booster).
+        # Wi-Fi: Valorant's 4 keys + disable_mimo_power_save + disable_bss_scan
+        # (no throughput_booster).
         wifi_enabled = {
             key for key, value in profile["wifi_optimizer"].items()
             if value is True and key != "enabled"
@@ -62,16 +64,17 @@ class TestProfileManager:
             "disable_power_saving",
             "max_tx_power",
             "disable_mimo_power_save",
+            "disable_bss_scan",
         }
         assert profile["wifi_optimizer"].get("throughput_booster", False) is False
         assert profile["wifi_optimizer"]["enabled"] is True
 
-        # FPS Booster: stutter-prevention bundle.
+        # FPS Booster: stutter-prevention bundle (CPU/Windows only — no NVIDIA).
         fps = profile["fps_boost"]
         assert fps["timer_resolution"] is True
         assert fps["power_plan"] is True
-        assert fps["nvidia_ull"] is True
         # Excluded:
+        assert fps["nvidia_ull"] is False        # redundant with CS2's native Reflex
         assert fps["pcores_affinity"] is False   # starves CS2 E-cores → stutter
         assert fps["nvidia_max_perf"] is False   # RTX 4060 Laptop thermal-throttle → stutter
         assert fps["disable_hags"] is False

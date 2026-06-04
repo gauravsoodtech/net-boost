@@ -2,9 +2,9 @@
 Tests for the CS2-specific MainWindow Game Mode wiring.
 
 CS2 has no kernel anti-cheat, so its auto plan covers all four sections:
-Wi-Fi (6-key bundle), FPS Booster (CPU + NVIDIA), Background Killer (4
-services), and a per-app DSCP EF (46) QoS policy.  Valorant must never
-enter the wider paths.
+Wi-Fi (6-key bundle), FPS Booster (CPU/Windows only — no NVIDIA keys),
+Background Killer (4 services), and a per-app DSCP EF (46) QoS policy.
+Valorant must never enter the wider paths.
 """
 
 from unittest.mock import MagicMock, patch
@@ -60,18 +60,21 @@ def test_cs2_game_mode_applies_fps_bundle(cs2_window):
     cs2_window._apply_fps.assert_called_once_with(cs2_fps_settings())
 
 
-def test_cs2_game_mode_starts_gpu_temp_timer_because_nvidia_keys_are_on(cs2_window):
+def test_cs2_game_mode_does_not_start_gpu_temp_timer_no_nvidia_keys(cs2_window):
+    """The CS2 FPS bundle carries no NVIDIA keys (nvidia_max_perf and
+    nvidia_ull are both excluded), so there is no GPU clock-locking to
+    monitor — the nvidia-smi GPU-temp poller must stay stopped."""
     with patch("psutil.Process") as proc_cls, \
          patch("core.bandwidth_manager.apply_dscp_policy", return_value=True), \
          patch("core.bandwidth_manager._sanitise_name", return_value="cs2_x"):
         proc_cls.return_value.exe.return_value = r"C:\cs2.exe"
         MainWindow._activate_game_mode(cs2_window, "cs2.exe")
 
-    assert cs2_window._gpu_temp_timer.started is True
+    assert cs2_window._gpu_temp_timer.started is False
 
 
-def test_cs2_fps_bundle_excludes_disable_hags_and_visual_effects(cs2_window):
-    """Reboot-required / desktop-invasive keys must stay manual."""
+def test_cs2_fps_bundle_excludes_nvidia_reboot_and_invasive_keys(cs2_window):
+    """Reboot-required / desktop-invasive / NVIDIA keys must stay manual."""
     with patch("psutil.Process") as proc_cls, \
          patch("core.bandwidth_manager.apply_dscp_policy", return_value=True), \
          patch("core.bandwidth_manager._sanitise_name", return_value="cs2_x"):
@@ -81,6 +84,8 @@ def test_cs2_fps_bundle_excludes_disable_hags_and_visual_effects(cs2_window):
     fps_call_args = cs2_window._apply_fps.call_args[0][0]
     assert fps_call_args["disable_hags"] is False
     assert fps_call_args["visual_effects_off"] is False
+    assert fps_call_args["nvidia_max_perf"] is False   # thermal-throttle → stutter
+    assert fps_call_args["nvidia_ull"] is False         # redundant with CS2's native Reflex
 
 
 # ---------------------------------------------------------------------------
