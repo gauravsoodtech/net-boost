@@ -17,10 +17,23 @@ class TestProfileManager:
 
     @pytest.fixture
     def tmp_appdata(self, tmp_path):
-        """Redirect APPDATA to a temp directory."""
-        profiles_dir = tmp_path / "NetBoost" / "profiles"
+        """Redirect APPDATA *and* the already-resolved profile paths to a temp dir.
+
+        core.profile_manager resolves _BASE_DIR / _PROFILES_DIR / _ACTIVE_FILE at
+        import time, so patching only the APPDATA env var is ineffective once the
+        module has been imported anywhere else in the session (e.g. another test's
+        top-level import). Patch the module-level path constants directly so
+        isolation holds regardless of import order — otherwise tests can read a
+        stale built-in profile from the real %APPDATA%.
+        """
+        import core.profile_manager as pmod
+        base = tmp_path / "NetBoost"
+        profiles_dir = base / "profiles"
         profiles_dir.mkdir(parents=True)
-        with patch.dict(os.environ, {"APPDATA": str(tmp_path)}):
+        with patch.dict(os.environ, {"APPDATA": str(tmp_path)}), \
+             patch.object(pmod, "_BASE_DIR", str(base)), \
+             patch.object(pmod, "_PROFILES_DIR", str(profiles_dir)), \
+             patch.object(pmod, "_ACTIVE_FILE", str(base / "active_profile.txt")):
             yield tmp_path
 
     @pytest.fixture

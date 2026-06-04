@@ -15,6 +15,8 @@ subset and a per-app DSCP EF (46) QoS policy.
 
 from __future__ import annotations
 
+from core import setting_keys
+
 STABLE_PING_GAME_EXES = frozenset({
     "valorant-win64-shipping.exe",
     "cs2.exe",
@@ -32,17 +34,10 @@ DSCP_GAME_EXES = frozenset({
 # Wi-Fi
 # ---------------------------------------------------------------------------
 
-WIFI_SETTING_KEYS = (
-    "disable_lso",
-    "disable_interrupt_mod",
-    "disable_power_saving",
-    "minimize_roaming",
-    "max_tx_power",
-    "disable_bss_scan",
-    "prefer_6ghz",
-    "throughput_booster",
-    "disable_mimo_power_save",
-)
+# Canonical key tuples live in core/setting_keys.py — the single source of
+# truth shared with settings_risk, the profile schema, and the UI tabs.
+# Re-exported here under this module's historical names.
+WIFI_SETTING_KEYS = setting_keys.WIFI_KEYS
 
 # Valorant — minimum, Vanguard-safe.
 VALORANT_WIFI_ENABLED_KEYS = frozenset({
@@ -82,18 +77,7 @@ CS2_WIFI_ENABLED_KEYS = frozenset(VALORANT_WIFI_ENABLED_KEYS | {
 # FPS Booster (CPU + GPU rows)
 # ---------------------------------------------------------------------------
 
-FPS_SETTING_KEYS = (
-    "power_plan",
-    "pcores_affinity",
-    "timer_resolution",
-    "game_dvr_off",
-    "fullscreen_opt_off",
-    "sysmain_off",
-    "visual_effects_off",
-    "nvidia_max_perf",
-    "nvidia_ull",
-    "disable_hags",
-)
+FPS_SETTING_KEYS = setting_keys.FPS_KEYS
 
 # Stutter-prevention bundle for CS2.  `disable_hags` requires a reboot to
 # take effect, so applying it mid-session does nothing useful and would only
@@ -131,22 +115,11 @@ CS2_FPS_ENABLED_KEYS = frozenset({
 # Optimizer (Background Killer rows only — TCP/DNS deliberately excluded)
 # ---------------------------------------------------------------------------
 
-OPTIMIZER_SETTING_KEYS = (
-    "tcp_no_delay",
-    "tcp_ack_freq",
-    "tcp_window_scale",
-    "switch_dns",
-    "pause_windows_update",
-    "pause_onedrive",
-    "pause_bits",
-    "pause_telemetry",
-    # System Tweaks (require reboot; opt-in — deliberately excluded from
-    # CS2_OPTIMIZER_ENABLED_KEYS until the user has reboot-validated them
-    # once. Adding them to the auto bundle for CS2 is a future-PR step.)
-    "force_msi_mode",
-    "disable_ndu",
-    "disable_network_throttling",
-)
+# System Tweaks (force_msi_mode / disable_ndu / disable_network_throttling) are
+# part of OPTIMIZER_KEYS but require reboot, so they stay opt-in — deliberately
+# excluded from CS2_OPTIMIZER_ENABLED_KEYS until the user has reboot-validated
+# them once. Adding them to the auto bundle for CS2 is a future-PR step.
+OPTIMIZER_SETTING_KEYS = setting_keys.OPTIMIZER_KEYS
 
 # Background-bandwidth bundle for CS2.  `pause_telemetry` catches DiagTrack,
 # the most common silent ping-spike source on a clean Win11 install.  TCP

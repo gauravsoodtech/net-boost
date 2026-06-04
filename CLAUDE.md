@@ -393,7 +393,22 @@ Do not emit `profile_new_requested` from `_on_duplicate` — it will always dupl
 
 ## Canonical Key Names
 
-All setting key names are defined by the UI toggle rows (`_toggle_rows` dicts in each tab). Every backend module and profile JSON **must** use these exact strings. Mismatches cause silent no-ops.
+**Single source of truth: `core/setting_keys.py`.** It declares the canonical key
+tuples (`WIFI_KEYS`, `FPS_KEYS`/`FPS_CPU_KEYS`/`FPS_GPU_KEYS`, `OPTIMIZER_KEYS` and
+its `TCP_KEYS`/`DNS_KEYS`/`BACKGROUND_KILLER_KEYS`/`SYSTEM_TWEAK_KEYS` sub-groups),
+plus `ALL_KEYS`, `TAB_BY_KEY`, and `PROFILE_SECTION_KEYS`. `core/stable_ping_policy.py`
+re-exports these as its `*_SETTING_KEYS` tuples.
+
+The keys originate from the UI toggle rows (`_toggle_rows` dicts in each tab). Every
+backend module and profile JSON **must** use these exact strings — mismatches cause
+silent no-ops. `tests/test_setting_keys.py` is the guard: it asserts the tabs,
+`settings_risk.RISK_REGISTRY`, `stable_ping_policy`, and the profile schema all agree
+with `setting_keys`, so any drift fails loudly instead of silently no-opping. When you
+add or remove a toggle, update the tab row, the `settings_risk` entry, the profile
+field, and `core/setting_keys.py` together (the partition-size tripwire test will remind
+you).
+
+The per-category lists below mirror `core/setting_keys.py` and show each key's backend route.
 
 **Wi-Fi (`tab_wifi.py` → `core/wifi_optimizer.py`):**
 `disable_lso`, `disable_interrupt_mod`, `disable_power_saving`, `minimize_roaming`, `max_tx_power`, `disable_bss_scan`, `prefer_6ghz`, `throughput_booster`, `disable_mimo_power_save`
