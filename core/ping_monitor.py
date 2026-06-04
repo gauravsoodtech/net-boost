@@ -28,7 +28,11 @@ logger = logging.getLogger(__name__)
 
 _ICMP_ECHO_REQUEST = 8   # ICMP type for echo request
 _ICMP_CODE = 0
-_ICMP_HEADER_FORMAT = "bbHHh"   # type, code, checksum, id, seq
+# Network byte order ("!") so the id/seq we pack match the "!H" unpack used on
+# the echo reply — native order byte-swaps them on little-endian (every Windows
+# PC), making every raw reply fail to match and the raw path silently time out.
+# Unsigned seq ("H") also avoids a struct.error crash once seq passes 32767.
+_ICMP_HEADER_FORMAT = "!bbHHH"   # type, code, checksum, id, seq
 
 
 def _checksum(data: bytes) -> int:

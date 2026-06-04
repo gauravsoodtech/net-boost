@@ -203,3 +203,28 @@ class TestPingMonitorSignal:
 
         assert len(received) >= 1
         assert received[0][2] is True
+
+
+class TestIcmpPacketEncoding:
+    """Regression: the ICMP id/seq we pack must round-trip through the same
+    big-endian unpack the reply parser uses, and seq must survive values >32767.
+    A native-order pack ("bbHHh") byte-swaps id/seq on little-endian and crashes
+    once seq passes 32767 — both make raw ICMP silently fail."""
+
+    def test_id_seq_roundtrip_matches_reply_unpack(self):
+        import struct
+        from core.ping_monitor import _build_icmp_packet
+
+        ident, seq = 0x1234, 0x0102
+        packet = _build_icmp_packet(ident, seq)
+
+        # Reply parser reads id at [4:6] and seq at [6:8] of the ICMP header with "!H".
+        assert struct.unpack("!H", packet[4:6])[0] == ident
+        assert struct.unpack("!H", packet[6:8])[0] == seq
+
+    def test_high_sequence_does_not_crash(self):
+        from core.ping_monitor import _build_icmp_packet
+
+        # seq can reach 0xFFFF (65535); signed-short pack would raise struct.error.
+        packet = _build_icmp_packet(0xABCD, 0xFFFF)
+        assert len(packet) == 28
