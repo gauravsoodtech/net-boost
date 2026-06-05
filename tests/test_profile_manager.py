@@ -53,20 +53,18 @@ class TestProfileManager:
         assert "Default" in profiles
 
     def test_cs2_stable_ping_profile_is_bound_to_cs2_exe(self, manager):
-        """CS2 Stable Ping is Wi-Fi-only by design — it carries the extended
-        6-key Wi-Fi bundle (Valorant's 4 keys + ``disable_mimo_power_save`` +
-        ``disable_bss_scan``) and nothing else.  FPS Booster, Optimizer, and
-        Background Killer stay off; ``throughput_booster`` is excluded too
-        (confirmed ping-spike source).  The goal is link-latency stability,
-        not frame-rate or background tuning."""
+        """CS2 Stable Ping is Wi-Fi-only by design: it carries the conservative
+        4-key Wi-Fi bundle and nothing else. FPS Booster, Optimizer, and
+        Background Killer stay off; ``throughput_booster`` is excluded too.
+        The goal is link-latency stability, not frame-rate or background
+        tuning."""
         manager.load_all()
         profile = manager.load_profile("CS2 Stable Ping")
         assert profile is not None
         assert profile["name"] == "CS2 Stable Ping"
         assert profile["game_list"] == ["cs2.exe"]
 
-        # Wi-Fi: Valorant's 4 keys + disable_mimo_power_save + disable_bss_scan
-        # (no throughput_booster).
+        # Wi-Fi: Valorant's 4-key conservative bundle.
         wifi_enabled = {
             key for key, value in profile["wifi_optimizer"].items()
             if value is True and key != "enabled"
@@ -76,9 +74,9 @@ class TestProfileManager:
             "disable_interrupt_mod",
             "disable_power_saving",
             "max_tx_power",
-            "disable_mimo_power_save",
-            "disable_bss_scan",
         }
+        assert profile["wifi_optimizer"].get("disable_mimo_power_save", False) is False
+        assert profile["wifi_optimizer"].get("disable_bss_scan", False) is False
         assert profile["wifi_optimizer"].get("throughput_booster", False) is False
         assert profile["wifi_optimizer"]["enabled"] is True
 
@@ -93,6 +91,34 @@ class TestProfileManager:
         assert profile["tcp_optimizer"]["enabled"] is False
         assert profile["dns"]["switch_dns"] is False
         assert profile["nvidia_optimizer"]["enabled"] is False
+
+    def test_load_all_migrates_exact_legacy_cs2_builtin_to_lighter_wifi(self, manager):
+        import core.profile_manager as pmod
+
+        manager.save_profile(
+            "CS2 Stable Ping",
+            pmod._build_legacy_cs2_stable_ping_profile(),
+        )
+
+        manager.load_all()
+
+        profile = manager.load_profile("CS2 Stable Ping")
+        assert profile["wifi_optimizer"]["disable_mimo_power_save"] is False
+        assert profile["wifi_optimizer"]["disable_bss_scan"] is False
+
+    def test_load_all_does_not_overwrite_customized_cs2_profile(self, manager):
+        import core.profile_manager as pmod
+
+        custom = pmod._build_legacy_cs2_stable_ping_profile()
+        custom["background_killer"]["pause_bits"] = True
+        manager.save_profile("CS2 Stable Ping", custom)
+
+        manager.load_all()
+
+        profile = manager.load_profile("CS2 Stable Ping")
+        assert profile["background_killer"]["pause_bits"] is True
+        assert profile["wifi_optimizer"]["disable_mimo_power_save"] is True
+        assert profile["wifi_optimizer"]["disable_bss_scan"] is True
 
     def test_load_all_adds_missing_builtins_without_overwriting_user_profiles(self, manager):
         """Existing profile folders should still receive newly-added built-ins."""

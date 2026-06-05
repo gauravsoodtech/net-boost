@@ -12,10 +12,9 @@ goal of Stable Ping Mode is link-latency stability, not frame-rate or
 background tuning — and the FPS/GPU/DSCP knobs were a recurring source of
 stutter, thermal throttle, and confusion when applied automatically.
 
-VALORANT applies only the 4-key Wi-Fi latency subset because Vanguard's kernel
-anti-cheat mistrusts wider surfaces.  CS2 has no kernel driver, so it can use a
-slightly wider Wi-Fi subset (adds ``disable_mimo_power_save`` and
-``disable_bss_scan``), but it is still Wi-Fi-only by design.
+VALORANT and CS2 both apply the same conservative 4-key Wi-Fi latency subset.
+The wider BSS-scan and MIMO power-save levers stay manual because they vary by
+router/driver and can worsen jitter on some links.
 """
 
 from __future__ import annotations
@@ -36,7 +35,7 @@ STABLE_PING_GAME_EXES = frozenset({
 # Re-exported here under this module's historical names.
 WIFI_SETTING_KEYS = setting_keys.WIFI_KEYS
 
-# Valorant — minimum, Vanguard-safe.
+# Conservative stable-ping subset.
 VALORANT_WIFI_ENABLED_KEYS = frozenset({
     "disable_lso",
     "disable_interrupt_mod",
@@ -44,31 +43,17 @@ VALORANT_WIFI_ENABLED_KEYS = frozenset({
     "max_tx_power",
 })
 
-# Backwards-compatible alias.  External callers (profile_manager,
-# stable_ping_wifi_settings) treat this as the canonical "conservative"
-# subset, which matches Valorant's needs.
+# Backwards-compatible alias. External callers (profile_manager,
+# stable_ping_wifi_settings) treat this as the canonical conservative subset.
 STABLE_PING_WIFI_ENABLED_KEYS = VALORANT_WIFI_ENABLED_KEYS
 
-# CS2 — Valorant subset plus two AX211-friendly keys Valorant deliberately
-# omits: `disable_mimo_power_save` (keeps all MIMO chains hot) and
-# `disable_bss_scan` (suppresses background channel scans).  No Vanguard
-# concerns here.
+# CS2 uses the same lighter default. BSS scan and MIMO power-save changes are
+# still available as manual Wi-Fi toggles for one-at-a-time troubleshooting, but
+# they are no longer part of the auto-applied CS2 profile.
 #
-# `disable_bss_scan` directly targets stable ping: background BSS/channel scans
-# make the radio periodically leave its operating channel, producing recurring
-# ~50-150 ms airtime gaps that surface as periodic in-game ping spikes.  A CS2
-# match is a stationary, single-AP session, so there is no reason to scan
-# mid-game (same rationale as `minimize_roaming`).  Rated LOW risk in
-# core/settings_risk.py.
-#
-# `throughput_booster` is intentionally excluded: its packet-bursting behaviour
-# competes with latency stability and was a confirmed source of in-game ping
-# spikes for CS2 (see core/settings_risk.py — "Keep off for Stable Ping Mode").
-# It stays available as a manual Wi-Fi toggle for users who want raw throughput.
-CS2_WIFI_ENABLED_KEYS = frozenset(VALORANT_WIFI_ENABLED_KEYS | {
-    "disable_mimo_power_save",
-    "disable_bss_scan",
-})
+# `throughput_booster` remains excluded: its packet-bursting behavior competes
+# with latency stability and can create in-game ping spikes.
+CS2_WIFI_ENABLED_KEYS = STABLE_PING_WIFI_ENABLED_KEYS
 
 # ---------------------------------------------------------------------------
 # Canonical key-group re-exports
@@ -94,12 +79,12 @@ def is_stable_ping_game(exe_name: str | None) -> bool:
 
 
 def stable_ping_wifi_settings() -> dict[str, bool]:
-    """Return the conservative Wi-Fi settings used by Valorant Stable Ping."""
+    """Return the conservative stable-ping Wi-Fi settings."""
     return {key: key in VALORANT_WIFI_ENABLED_KEYS for key in WIFI_SETTING_KEYS}
 
 
 def cs2_wifi_settings() -> dict[str, bool]:
-    """Return the CS2 Wi-Fi bundle (Valorant subset + MIMO / BSS-scan keys)."""
+    """Return the lighter CS2 Wi-Fi bundle."""
     return {key: key in CS2_WIFI_ENABLED_KEYS for key in WIFI_SETTING_KEYS}
 
 
@@ -116,10 +101,9 @@ def build_game_mode_plan(
     """
     Build the settings sections Game Mode should apply for *exe_name*.
 
-    Stable-ping games get a Wi-Fi-only bundle (CS2 a slightly wider Wi-Fi
-    subset than Valorant).  When no game is running, Game Mode stays armed and
-    applies nothing.  Other detected games keep the legacy configured-tab
-    behavior for compatibility.
+    Stable-ping games get a conservative Wi-Fi-only bundle. When no game is
+    running, Game Mode stays armed and applies nothing. Other detected games
+    keep the legacy configured-tab behavior for compatibility.
     """
     if is_stable_ping_game(exe_name):
         if exe_name.lower() == "cs2.exe":

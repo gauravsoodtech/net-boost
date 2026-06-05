@@ -39,7 +39,7 @@ RISK_REGISTRY: dict[str, dict] = {
         "tab": "wifi",
         "display": "Disable BSS Scan",
         "cause": "Prevents background channel scans.",
-        "advice": "Generally safe; reduces scan-induced micro-drops.",
+        "advice": "Manual test only; can help scans but may hurt some routers.",
     },
     "disable_power_saving": {
         "level": "LOW",
@@ -67,7 +67,7 @@ RISK_REGISTRY: dict[str, dict] = {
         "tab": "wifi",
         "display": "Disable MIMO Power Save",
         "cause": "Keeps all MIMO chains active.",
-        "advice": "Minor battery impact.",
+        "advice": "Manual test only; can change radio behavior on some links.",
     },
 
     # ------------------------------------------------------------------ FPS — GPU

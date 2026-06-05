@@ -1,10 +1,10 @@
 """
 Tests for the CS2-specific MainWindow Game Mode wiring.
 
-CS2 is Wi-Fi-only: its auto plan applies only the extended 6-key Wi-Fi bundle.
+CS2 is Wi-Fi-only: its auto plan applies only the conservative 4-key Wi-Fi bundle.
 FPS Booster, Optimizer (background killer / TCP / DNS), and the per-app DSCP
-QoS policy are NOT auto-applied — they stay manual.  Valorant stays on its
-narrower 4-key Wi-Fi subset.
+QoS policy are NOT auto-applied — they stay manual. Valorant and CS2 both use
+the same conservative 4-key Wi-Fi subset.
 
 The MainWindow still carries the DSCP teardown machinery (it is correct
 defensive cleanup), so the deactivate tests below set a policy directly to
@@ -35,7 +35,7 @@ def cs2_window():
 # Wi-Fi section — the only thing CS2 auto-applies
 # ---------------------------------------------------------------------------
 
-def test_cs2_game_mode_applies_extended_wifi_bundle(cs2_window):
+def test_cs2_game_mode_applies_lighter_wifi_bundle(cs2_window):
     from core.stable_ping_policy import cs2_wifi_settings
 
     MainWindow._activate_game_mode(cs2_window, "cs2.exe")

@@ -168,15 +168,24 @@ def _build_valorant_stable_ping_profile() -> dict:
 
 def _build_cs2_stable_ping_profile() -> dict:
     """CS2 Stable Ping is Wi-Fi-only by design, matching the CS2 Game Mode auto
-    plan: the extended 6-key Wi-Fi bundle (Valorant's 4 keys plus
-    ``disable_mimo_power_save`` and ``disable_bss_scan``) and nothing else.
-    FPS Booster, Optimizer, and QoS levers stay manual — the goal of Stable
-    Ping Mode is link-latency stability, not frame-rate or background tuning."""
+    plan: the conservative 4-key Wi-Fi bundle and nothing else. FPS Booster,
+    Optimizer, and QoS levers stay manual - the goal of Stable Ping Mode is
+    link-latency stability, not frame-rate or background tuning."""
     p = _build_gaming_profile()
     p["name"] = "CS2 Stable Ping"
     p["game_list"] = ["cs2.exe"]
     p["wifi_optimizer"].update(cs2_wifi_settings())
     p["wifi_optimizer"]["enabled"] = True
+    return p
+
+
+def _build_legacy_cs2_stable_ping_profile() -> dict:
+    """Return the older CS2 built-in shape used only for safe migration."""
+    p = _build_cs2_stable_ping_profile()
+    p["wifi_optimizer"].update({
+        "disable_mimo_power_save": True,
+        "disable_bss_scan": True,
+    })
     return p
 
 
@@ -255,6 +264,29 @@ def _seed_defaults() -> None:
         if name not in existing:
             logger.info("Seeding missing built-in profile '%s'.", name)
             _write_profile(name, factory())
+    _migrate_legacy_cs2_stable_ping_profile()
+
+
+def _migrate_legacy_cs2_stable_ping_profile() -> None:
+    """Replace the exact old CS2 built-in with the lighter current default."""
+    name = "CS2 Stable Ping"
+    path = _profile_path(name)
+    if not os.path.isfile(path):
+        return
+
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (json.JSONDecodeError, OSError) as exc:
+        logger.warning("Skipping CS2 profile migration for '%s': %s", path, exc)
+        return
+
+    data["name"] = name
+    if data != _build_legacy_cs2_stable_ping_profile():
+        return
+
+    logger.info("Migrating built-in profile '%s' to lighter Wi-Fi defaults.", name)
+    _write_profile(name, _build_cs2_stable_ping_profile())
 
 
 # ---------------------------------------------------------------------------
