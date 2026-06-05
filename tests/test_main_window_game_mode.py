@@ -92,6 +92,7 @@ def _window_for_game_mode():
     window._game_mode_applied = False
     window._game_mode_active = False
     window._game_mode_pending = False
+    window._game_mode_dscp_policy = None
     window._pre_game_mode_settings = None
     window._current_game = None
     window._current_game_pid = 0
@@ -196,6 +197,26 @@ def test_valorant_game_mode_does_not_mark_applied_when_wifi_adapter_missing():
         "Game Mode: Wi-Fi failed: Wi-Fi adapter key not found - LSO may still be active. "
         "Run as admin and confirm the adapter is supported."
     )
+
+
+def test_failed_game_mode_deactivate_clears_pre_game_snapshot():
+    window = _window_for_game_mode()
+    window._apply_wifi.return_value = {
+        "_adapter_found": False,
+        "_write_count": 0,
+        "_verified_count": 0,
+        "_failed_count": 0,
+        "_failed_values": [],
+    }
+
+    MainWindow._activate_game_mode(window, "VALORANT-Win64-Shipping.exe")
+
+    assert window._game_mode_applied is False
+    assert window._pre_game_mode_settings is not None
+
+    MainWindow._deactivate_game_mode(window)
+
+    assert window._pre_game_mode_settings is None
 
 
 def test_valorant_game_mode_does_not_mark_applied_when_no_wifi_write_confirmed():

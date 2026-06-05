@@ -97,3 +97,41 @@ def test_on_wifi_restart_done_failure_toast():
 
     warnings = [m for m, lvl, _ in window._toast.messages if lvl == "warning"]
     assert any("Device Manager" in m for m in warnings)
+
+
+def test_wifi_restore_restarts_adapter_when_restored_values_need_reset(monkeypatch):
+    window = _restart_window(monkeypatch)
+    backup = {
+        "_requires_restart": True,
+        "_adapter_found": True,
+        "_driver_desc": "Intel AX211",
+        "_adapter_key": "adapter-key",
+        "PowerSavingMode": 1,
+    }
+    window._wifi_optimizer = MagicMock()
+    window.state_guard = MagicMock()
+    window.state_guard.get_state.return_value = {"wifi_backup": backup}
+
+    MainWindow._on_wifi_restore(window)
+
+    window._wifi_optimizer.restore.assert_called_once_with(dict(backup))
+    assert len(_FakePool.started) == 1
+    assert _FakePool.started[0].driver_desc == "Intel AX211"
+
+
+def test_wifi_restore_skips_restart_when_backup_did_not_change_driver_values(monkeypatch):
+    window = _restart_window(monkeypatch)
+    backup = {
+        "_requires_restart": False,
+        "_adapter_found": True,
+        "_driver_desc": "Intel AX211",
+        "PowerSavingMode": 0,
+    }
+    window._wifi_optimizer = MagicMock()
+    window.state_guard = MagicMock()
+    window.state_guard.get_state.return_value = {"wifi_backup": backup}
+
+    MainWindow._on_wifi_restore(window)
+
+    window._wifi_optimizer.restore.assert_called_once_with(dict(backup))
+    assert _FakePool.started == []

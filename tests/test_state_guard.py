@@ -265,6 +265,51 @@ class TestStateGuard:
 
         assert not state_path.exists()
 
+    def test_restore_all_restarts_wifi_once_after_replayed_restores(self, clean_guard):
+        """Wi-Fi restore needs one miniport reset after all snapshots replay."""
+        first = {
+            "_requires_restart": True,
+            "_adapter_found": True,
+            "_driver_desc": "Intel AX211",
+            "_adapter_key": "adapter-key",
+            "PowerSavingMode": 1,
+        }
+        second = {
+            "_requires_restart": True,
+            "_adapter_found": True,
+            "_driver_desc": "Intel AX211",
+            "_adapter_key": "adapter-key",
+            "PowerSavingMode": 0,
+        }
+        clean_guard.record_wifi_backup(first)
+        clean_guard.record_wifi_backup(second)
+
+        with patch("core.wifi_optimizer.restore") as mock_restore, \
+             patch(
+                 "core.wifi_optimizer.restart_adapter",
+                 return_value={"ok": True, "error": ""},
+             ) as mock_restart:
+            clean_guard.restore_all()
+
+        assert mock_restore.call_count == 2
+        mock_restart.assert_called_once_with("Intel AX211")
+
+    def test_restore_all_skips_wifi_restart_when_backup_never_went_live(self, clean_guard):
+        backup = {
+            "_requires_restart": False,
+            "_adapter_found": True,
+            "_driver_desc": "Intel AX211",
+            "PowerSavingMode": 0,
+        }
+        clean_guard.record_wifi_backup(backup)
+
+        with patch("core.wifi_optimizer.restore") as mock_restore, \
+             patch("core.wifi_optimizer.restart_adapter") as mock_restart:
+            clean_guard.restore_all()
+
+        mock_restore.assert_called_once()
+        mock_restart.assert_not_called()
+
     def test_legacy_state_file_migrates_into_history(self, clean_guard):
         """A pre-Phase-D state.json (no backup_history) should heal correctly."""
         import pathlib

@@ -207,6 +207,31 @@ def test_apply_no_restart_when_values_already_set(monkeypatch):
     assert backup["_requires_restart"] is False
 
 
+def test_restore_does_not_mutate_backup_metadata(monkeypatch):
+    writes = []
+
+    monkeypatch.setattr(
+        wifi_optimizer,
+        "_write_reg",
+        lambda subkey, value, new_value: writes.append((subkey, value, new_value)),
+    )
+    monkeypatch.setattr(wifi_optimizer, "_delete_reg", lambda *a, **k: None)
+
+    backup = {
+        "_adapter_key": "adapter-key",
+        "_requires_restart": True,
+        "_driver_desc": "Intel AX211",
+        "PowerSavingMode": 1,
+    }
+
+    wifi_optimizer.restore(backup)
+
+    assert backup["_adapter_key"] == "adapter-key"
+    assert backup["_requires_restart"] is True
+    assert backup["_driver_desc"] == "Intel AX211"
+    assert writes == [("adapter-key", "PowerSavingMode", 1)]
+
+
 def test_restart_adapter_runs_targeted_powershell(monkeypatch):
     captured = {}
 

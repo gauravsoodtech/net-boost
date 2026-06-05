@@ -719,6 +719,7 @@ class MainWindow(QMainWindow):
 
         if not self._game_mode_applied:
             logger.info("Game Mode deactivated — no Game Mode changes to restore")
+            self._pre_game_mode_settings = None
             return
         logger.info("Deactivating game mode, restoring settings")
         if self.state_guard:
@@ -863,9 +864,9 @@ class MainWindow(QMainWindow):
     def _maybe_restart_wifi_adapter(self, backup: dict) -> None:
         """
         Power-cycle the Wi-Fi adapter so the driver re-reads the values just
-        written — otherwise the registry changes never go live and ping spikes
-        persist.  Only fires when a value actually changed (no needless drops on
-        repeated identical applies).  Runs async; result handled in
+        written/restored — otherwise registry changes never go live.  Only fires
+        when a value actually changed (no needless drops on repeated identical
+        applies).  Runs async; result handled in
         :meth:`_on_wifi_restart_done`.
         """
         if not backup.get("_requires_restart"):
@@ -885,7 +886,7 @@ class MainWindow(QMainWindow):
         if ok:
             self._set_status("Wi-Fi changes now live")
             self._toast.show_message(
-                "Wi-Fi changes now live — anti-jitter tweaks active.",
+                "Wi-Fi adapter restarted — driver settings now live.",
                 "success",
             )
         else:
@@ -908,8 +909,10 @@ class MainWindow(QMainWindow):
                 state = self.state_guard.get_state()
                 backup = state.get("wifi_backup", {})
                 if backup:
-                    self._wifi_optimizer.restore(backup)
+                    restore_backup = dict(backup)
+                    self._wifi_optimizer.restore(restore_backup)
                     self._set_status("Wi-Fi settings restored")
+                    self._maybe_restart_wifi_adapter(backup)
         except Exception as e:
             logger.error(f"Wi-Fi restore error: {e}")
 

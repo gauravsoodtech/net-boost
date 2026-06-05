@@ -303,7 +303,7 @@ def restore(backup: dict) -> None:
     Values that were absent before are deleted; otherwise the original is
     re-written.
     """
-    adapter_key = backup.pop("_adapter_key", None)
+    adapter_key = backup.get("_adapter_key")
     if adapter_key is None:
         adapter_key = get_wifi_adapter_key()
     if adapter_key is None:

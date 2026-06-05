@@ -177,12 +177,23 @@ def check_and_heal() -> bool:
     return True
 
 
-def _restore_entry(entry: dict) -> None:
+def _wifi_backup_requires_restart(backup: dict) -> bool:
+    """Return True when a restored Wi-Fi backup needs a miniport reset."""
+    return bool(
+        backup
+        and backup.get("_adapter_found", True)
+        and backup.get("_requires_restart")
+    )
+
+
+def _restore_entry(entry: dict) -> dict:
     """
     Replay a single backup_history snapshot.  Best-effort: each section is
     individually try/except guarded so a failure in one does not block the
     others.
     """
+    result = {"wifi_restart_required": False, "wifi_driver_desc": None}
+
     dns_backup = entry.get("dns_backup") or {}
     if dns_backup:
         try:
@@ -234,7 +245,10 @@ def _restore_entry(entry: dict) -> None:
     if wifi_backup:
         try:
             from core import wifi_optimizer  # type: ignore[import]
-            wifi_optimizer.restore(wifi_backup)
+            wifi_optimizer.restore(dict(wifi_backup))
+            if _wifi_backup_requires_restart(wifi_backup):
+                result["wifi_restart_required"] = True
+                result["wifi_driver_desc"] = wifi_backup.get("_driver_desc")
             logger.info("restore_all: Wi-Fi settings restored.")
         except Exception as exc:
             logger.error("restore_all: Wi-Fi restore failed: %s", exc)
@@ -284,6 +298,8 @@ def _restore_entry(entry: dict) -> None:
         except Exception as exc:
             logger.error("restore_all: Throttling restore failed: %s", exc)
 
+    return result
+
 
 def restore_all(state: dict | None = None) -> None:
     """
@@ -306,8 +322,27 @@ def restore_all(state: dict | None = None) -> None:
         return
 
     logger.info("restore_all: beginning system restore over %d snapshot(s) …", len(history))
+    wifi_restart_required = False
+    wifi_driver_desc = None
     for entry in reversed(history):
-        _restore_entry(entry)
+        result = _restore_entry(entry)
+        if result.get("wifi_restart_required"):
+            wifi_restart_required = True
+            wifi_driver_desc = result.get("wifi_driver_desc") or wifi_driver_desc
+
+    if wifi_restart_required:
+        try:
+            from core import wifi_optimizer  # type: ignore[import]
+            restart = wifi_optimizer.restart_adapter(wifi_driver_desc)
+            if restart.get("ok"):
+                logger.info("restore_all: Wi-Fi adapter restarted after restore.")
+            else:
+                logger.warning(
+                    "restore_all: Wi-Fi adapter restart after restore failed: %s",
+                    restart.get("error", ""),
+                )
+        except Exception as exc:
+            logger.error("restore_all: Wi-Fi adapter restart failed: %s", exc)
 
     clear()
     logger.info("restore_all: complete.")
