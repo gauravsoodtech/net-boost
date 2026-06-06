@@ -221,16 +221,38 @@ def _hop(hop, latency, bottleneck=False, ip=None, timeout=False):
     }
 
 
-def test_verdict_blames_wifi_when_gateway_is_bad():
-    v = nd.build_verdict(_ping(60, jitter=25), _ping(20), _ping(210), [])
-    assert "router" in v.lower()
+def test_verdict_blames_local_wifi_when_edge_unstable():
+    # Edge itself is jittery/high (crosses the Wi-Fi link) and the router is not
+    # clean either → the local Wi-Fi link is the problem.
+    v = nd.build_verdict(_ping(40, jitter=30), _ping(85, jitter=40), _ping(210), [])
     assert "wi-fi" in v.lower()
+
+
+def test_verdict_router_self_ping_ignored_when_edge_is_clean():
+    # REGRESSION: router self-ping reads high/jittery (ICMP deprioritization) but
+    # the edge — which crosses the same link — is clean. The link is fine, so the
+    # high server ping must be blamed on the server path, NOT the local Wi-Fi.
+    v = nd.build_verdict(_ping(18, jitter=49), _ping(3, jitter=0.0), _ping(210), [])
+    assert "path to the game server" in v.lower()
+    assert "your local wi-fi" not in v.lower()
 
 
 def test_verdict_blames_isp_when_edge_is_bad_but_gateway_fine():
     v = nd.build_verdict(_ping(3), _ping(120), _ping(210), [])
     assert "isp" in v.lower()
     assert "first mile" in v.lower()
+
+
+def test_verdict_no_internet_when_edge_unreachable():
+    v = nd.build_verdict(_ping(3), _ping(0, reachable=False), None, [])
+    assert "unreachable" in v.lower()
+
+
+def test_verdict_no_connectivity_when_nothing_reachable():
+    v = nd.build_verdict(
+        _ping(0, reachable=False), _ping(0, reachable=False), None, []
+    )
+    assert "no connectivity" in v.lower()
 
 
 def test_verdict_blames_server_path_with_bottleneck():

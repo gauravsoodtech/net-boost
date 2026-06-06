@@ -36,6 +36,7 @@ EDGE_HOST = "1.1.1.1"
 GATEWAY_BAD_MS = 30.0
 GATEWAY_JITTER_MS = 15.0
 EDGE_BAD_MS = 60.0
+EDGE_JITTER_MS = 15.0
 SERVER_BAD_MS = 80.0
 LOSS_BAD_PCT = 5.0
 
@@ -313,94 +314,104 @@ def build_verdict(
     """
     hops = hops or []
 
+    def _clean(res, avg_max: float, jit_max: float) -> bool:
+        return bool(
+            res and res.get("reachable")
+            and (res.get("avg_ms") or 0) <= avg_max
+            and (res.get("jitter_ms") or 0) <= jit_max
+            and (res.get("loss_pct") or 0) <= LOSS_BAD_PCT
+        )
+
     gw_ok = bool(gateway_res and gateway_res.get("reachable"))
-    gw_bad = gw_ok and (
-        (gateway_res["avg_ms"] or 0) > GATEWAY_BAD_MS
-        or (gateway_res.get("jitter_ms") or 0) > GATEWAY_JITTER_MS
-        or (gateway_res.get("loss_pct") or 0) > LOSS_BAD_PCT
-    )
     edge_ok = bool(edge_res and edge_res.get("reachable"))
-    edge_bad = edge_ok and (
-        (edge_res["avg_ms"] or 0) > EDGE_BAD_MS
-        or (edge_res.get("loss_pct") or 0) > LOSS_BAD_PCT
-    )
     server_ok = bool(server_res and server_res.get("reachable"))
+
+    # The edge leg (1.1.1.1) crosses the SAME Wi-Fi link as everything else and
+    # is a steady, reliable ICMP responder, so it -- not the router's own ping --
+    # is the trustworthy proxy for local link health.  Home routers routinely
+    # deprioritize ICMP to their own management IP (answering it on a slow path),
+    # so a high/jittery gateway reading alongside a clean edge does NOT mean the
+    # Wi-Fi is bad.  We therefore treat the gateway only as a *supporting* signal:
+    # a clean gateway is trustworthy, an inflated one is not.
+    edge_clean = _clean(edge_res, EDGE_BAD_MS, EDGE_JITTER_MS)
+    edge_bad = edge_ok and not edge_clean
+    gw_clean = _clean(gateway_res, GATEWAY_BAD_MS, GATEWAY_JITTER_MS)
+
     server_bad = server_ok and (
         (server_res["avg_ms"] or 0) > SERVER_BAD_MS
         or (server_res.get("loss_pct") or 0) > LOSS_BAD_PCT
     )
 
-    # --- Local Wi-Fi link is the problem (the one case local action helps) ---
-    if gw_bad:
+    # --- No usable internet path ---
+    if not edge_ok:
+        if gw_ok:
+            return (
+                "Your router answers but the internet (1.1.1.1) is unreachable. "
+                "That's your modem/ISP being down or a DNS/outage issue -- not "
+                "your PC or NetBoost."
+            )
         return (
-            f"The lag starts at your own router — ping to the gateway is "
-            f"{_leg_label(gateway_res)}. On a healthy Wi-Fi link this should be "
-            f"single-digit ms and steady. This is your local Wi-Fi: move closer "
-            f"to the router, reduce 2.4GHz congestion (microwave / neighbours / "
-            f"USB3 interference), or switch to the 5GHz band. This is the one "
+            "No connectivity -- couldn't reach your router or the internet. "
+            "Check that Wi-Fi is actually connected."
+        )
+
+    # --- The link out to the internet is unstable (a real local problem) ---
+    if edge_bad:
+        if gw_clean:
+            return (
+                f"The hop from your router out to the internet is unstable "
+                f"(1.1.1.1 = {_leg_label(edge_res)}) while the router itself is "
+                f"fine ({_leg_label(gateway_res)}). That points at your ISP's "
+                f"first mile / line, not your PC or NetBoost. Restart the router "
+                f"and raise it with your ISP if it persists."
+            )
+        return (
+            f"Your connection to the internet is unstable -- ping to 1.1.1.1 is "
+            f"{_leg_label(edge_res)}, and it crosses your Wi-Fi link. This is "
+            f"your local Wi-Fi: move closer to the router, cut 2.4GHz congestion "
+            f"(microwave / neighbours / Bluetooth), or try 5GHz. This is the one "
             f"part NetBoost's Wi-Fi tab can sometimes help with."
         )
 
-    # --- Router fine but the ISP first mile is bad ---
-    if gw_ok and not gw_bad and edge_bad:
+    # --- Local legs are healthy (edge is clean). The router's own ping may read
+    #     high here; that's normal ICMP deprioritization, not a fault, because
+    #     the clean edge proves the link itself is fine. ---
+    healthy = (
+        f"Your Wi-Fi link and internet connection are healthy "
+        f"(1.1.1.1 = {_leg_label(edge_res)})"
+    )
+    bottleneck = _bottleneck_summary(hops)
+
+    if server_bad or bottleneck:
+        head = healthy + "."
+        if server_ok:
+            head += f" The game server is {_leg_label(server_res)}."
+        where = (
+            f" The latency is added at {bottleneck}."
+            if bottleneck
+            else " The latency is on the route to the server."
+        )
         return (
-            f"Your Wi-Fi link is fine (gateway {_leg_label(gateway_res)}), but "
-            f"the hop to the internet ({EDGE_HOST}) is {_leg_label(edge_res)}. "
-            f"The latency is your ISP's first mile, not your PC or NetBoost. "
-            f"Restart/relocate the router, or raise it with your ISP. No local "
-            f"registry tweak can fix this."
+            head + where + " This is the path to the game server -- NOT "
+            "something NetBoost or any local setting can fix. Pick a closer "
+            "in-game server region if you can; if the region is already correct, "
+            "it's a distant server or an ISP routing/peering issue."
         )
 
-    # --- Router + edge fine, but the game server path is slow ---
-    if gw_ok and not gw_bad and (not edge_ok or not edge_bad):
-        bottleneck = _bottleneck_summary(hops)
-        if server_bad or bottleneck:
-            head = "Your Wi-Fi link and ISP first mile are healthy"
-            if gw_ok:
-                head += f" (gateway {_leg_label(gateway_res)}"
-                if edge_ok:
-                    head += f", edge {_leg_label(edge_res)}"
-                head += ")"
-            head += "."
-            if server_ok:
-                head += f" The game server is {_leg_label(server_res)}."
-            where = (
-                f" The latency is added at {bottleneck}."
-                if bottleneck
-                else " The latency is on the route to the server."
-            )
-            return (
-                head + where + " This is the path to the game server — NOT "
-                "something NetBoost or any local setting can fix. Pick a closer "
-                "in-game server region if you can; if the region is already "
-                "correct, it's a distant server or an ISP routing/peering issue "
-                "to raise with your ISP."
-            )
-
-    # --- Could not measure the server leg ---
     if not server_ok:
-        base = "Your local legs look fine"
-        if gw_ok:
-            base += f" (gateway {_leg_label(gateway_res)}"
-            if edge_ok:
-                base += f", edge {_leg_label(edge_res)}"
-            base += ")"
-        base += "."
         return (
-            base + " Couldn't measure the game server (its address wasn't found "
-            "— common for Vanguard-protected games that hide UDP connections). "
-            "Enter the server IP manually and run again, or trust the in-game "
-            "region setting: if 1.1.1.1 is fine but the game isn't, the lag is "
-            "the route to the server, which NetBoost cannot tune."
+            healthy + ". Couldn't measure the game server (its address wasn't "
+            "found -- common for Vanguard-protected games that hide their UDP "
+            "connections). Enter the server IP manually and run again. If 1.1.1.1 "
+            "is fine but the game isn't, the lag is the route to the server, "
+            "which NetBoost cannot tune."
         )
 
     # --- Everything measured fine ---
     return (
-        f"All measured legs look healthy — gateway {_leg_label(gateway_res)}, "
-        f"edge {_leg_label(edge_res)}"
+        healthy
         + (f", server {_leg_label(server_res)}" if server_ok else "")
-        + ". If the game still spikes, it's likely brief bufferbloat from "
-        "background apps (large downloads/uploads/updates) momentarily "
-        "saturating the link — close them during play. This is not something a "
-        "Wi-Fi registry tweak fixes."
+        + ". If the game still spikes it's likely brief bufferbloat from "
+        "background apps (big downloads / updates) saturating the link -- close "
+        "them during play. A Wi-Fi registry tweak won't fix that."
     )
