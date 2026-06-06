@@ -39,7 +39,7 @@ NetBoost fixes all of it with one click.
 ### 📶 Wi-Fi Optimizer — Kills Ping Spikes
 The Intel AX211 aggressively power-saves and background-scans by default, causing random 200–500ms spikes. NetBoost disables this at the driver registry level:
 
-Stable Ping Mode for VALORANT now applies only the conservative Wi-Fi latency bundle automatically. Broader TCP, DNS, service, and FPS tweaks stay manual so they do not make jitter worse elsewhere.
+Stable Ping Mode for VALORANT and CS2 is monitoring-only by default. Wi-Fi, TCP, DNS, service, and FPS tweaks stay manual so NetBoost does not destabilize the adapter automatically.
 
 | Tweak | Effect |
 |-------|--------|
@@ -62,7 +62,7 @@ Stable Ping Mode for VALORANT now applies only the conservative Wi-Fi latency bu
 | Disable Dynamic P-States | Stable GPU clocks between frames |
 
 ### 🌐 Network Optimizer
-For VALORANT Stable Ping Mode, TCP, DNS, and service controls are manual advanced settings. They can still be useful for specific situations, but they are no longer part of the automatic low-jitter bundle.
+For VALORANT/CS2 Stable Ping Mode, TCP, DNS, service controls, and Wi-Fi driver tweaks are manual advanced settings. They can still be useful for specific situations, but they are no longer part of the automatic Game Mode path.
 
 - **TCP tweaks** (`TCPNoDelay`, `TcpAckFrequency`, window scaling) are system-wide TCP changes and do not target VALORANT's UDP gameplay traffic.
 - **DNS switch** to Cloudflare (1.1.1.1), Google (8.8.8.8), Quad9 (9.9.9.9), or OpenDNS. DNS can improve lookup speed, but it does not stabilize packets after a match connection is established.
@@ -178,13 +178,13 @@ Output: `dist/main.exe` → rename to `NetBoost.exe`
 
 ## Usage Guide
 
-1. **Profiles tab** - load `VALORANT Stable Ping` or the updated `Gaming` profile.
+1. **Profiles tab** - load `VALORANT Stable Ping`, `CS2 Stable Ping`, or `Gaming` for monitoring-focused defaults.
 2. **Dashboard** - toggle Game Mode ON. With no game running, it is armed but does not change Windows settings.
-3. **Launch VALORANT** - NetBoost applies only the stable Wi-Fi latency bundle while the game session is active.
+3. **Launch VALORANT or CS2** - NetBoost monitors the session without changing Wi-Fi registry values automatically.
 4. **Monitor tab** - watch ping, jitter, loss, and any health recommendations.
-5. **Advanced manual tuning** - test TCP, DNS, service, FPS, roaming, or 6 GHz options one at a time only if monitoring shows a reason.
+5. **Advanced manual tuning** - test Wi-Fi, TCP, DNS, service, FPS, roaming, or 6 GHz options one at a time only if monitoring shows a reason.
 
-After setup, just launch VALORANT. NetBoost keeps the automatic path conservative and reversible.
+After setup, just launch the game. NetBoost keeps the automatic path monitoring-only; driver and system tweaks stay manual.
 
 ---
 

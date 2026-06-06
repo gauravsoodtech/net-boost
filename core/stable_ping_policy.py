@@ -2,19 +2,15 @@
 Stable-ping Game Mode policy.
 
 This module keeps game-session defaults separate from the visible tab state.
-Each supported game declares which Wi-Fi keys Game Mode should flip on when
-that game is detected.
 
-Both supported games are intentionally **Wi-Fi-only**: Game Mode auto-apply
-never touches the FPS Booster, the Optimizer, or per-app QoS for them.  Those
-levers stay manual (available in their tabs and in saved profiles) because the
-goal of Stable Ping Mode is link-latency stability, not frame-rate or
-background tuning — and the FPS/GPU/DSCP knobs were a recurring source of
-stutter, thermal throttle, and confusion when applied automatically.
+Supported stable-ping games are monitoring-only by default: Game Mode
+auto-apply never touches Wi-Fi registry values, the FPS Booster, the Optimizer,
+or per-app QoS for them. Those levers stay manual because applying driver-level
+Wi-Fi settings automatically can destabilize some Intel adapter / router
+combinations and force a network reset.
 
-VALORANT and CS2 both apply the same conservative 4-key Wi-Fi latency subset.
-The wider BSS-scan and MIMO power-save levers stay manual because they vary by
-router/driver and can worsen jitter on some links.
+VALORANT and CS2 both use the same empty auto-apply surface. The Wi-Fi tab can
+still be used manually for one-at-a-time troubleshooting.
 """
 
 from __future__ import annotations
@@ -30,29 +26,21 @@ STABLE_PING_GAME_EXES = frozenset({
 # Wi-Fi
 # ---------------------------------------------------------------------------
 
-# Canonical key tuples live in core/setting_keys.py — the single source of
+# Canonical key tuples live in core/setting_keys.py - the single source of
 # truth shared with settings_risk, the profile schema, and the UI tabs.
 # Re-exported here under this module's historical names.
 WIFI_SETTING_KEYS = setting_keys.WIFI_KEYS
 
-# Conservative stable-ping subset.
-VALORANT_WIFI_ENABLED_KEYS = frozenset({
-    "disable_lso",
-    "disable_interrupt_mod",
-    "disable_power_saving",
-    "max_tx_power",
-})
+# Stable-ping Game Mode does not automatically write Wi-Fi driver settings.
+VALORANT_WIFI_ENABLED_KEYS = frozenset()
 
 # Backwards-compatible alias. External callers (profile_manager,
-# stable_ping_wifi_settings) treat this as the canonical conservative subset.
+# stable_ping_wifi_settings) treat this as the canonical stable-ping subset.
 STABLE_PING_WIFI_ENABLED_KEYS = VALORANT_WIFI_ENABLED_KEYS
 
-# CS2 uses the same lighter default. BSS scan and MIMO power-save changes are
-# still available as manual Wi-Fi toggles for one-at-a-time troubleshooting, but
-# they are no longer part of the auto-applied CS2 profile.
-#
-# `throughput_booster` remains excluded: its packet-bursting behavior competes
-# with latency stability and can create in-game ping spikes.
+# CS2 uses the same monitoring-only default. BSS scan, MIMO power save,
+# throughput booster, LSO, interrupt moderation, and power settings remain
+# manual Wi-Fi toggles.
 CS2_WIFI_ENABLED_KEYS = STABLE_PING_WIFI_ENABLED_KEYS
 
 # ---------------------------------------------------------------------------
@@ -60,9 +48,9 @@ CS2_WIFI_ENABLED_KEYS = STABLE_PING_WIFI_ENABLED_KEYS
 # ---------------------------------------------------------------------------
 
 # Game Mode no longer auto-applies any FPS or Optimizer keys for stable-ping
-# games (both games are Wi-Fi-only).  These tuples are re-exported only so the
-# setting_keys single-source-of-truth cross-checks and external callers keep a
-# stable import path; they are not used to build any auto plan here.
+# games. These tuples are re-exported only so the setting_keys
+# single-source-of-truth cross-checks and external callers keep a stable import
+# path; they are not used to build any auto plan here.
 FPS_SETTING_KEYS = setting_keys.FPS_KEYS
 OPTIMIZER_SETTING_KEYS = setting_keys.OPTIMIZER_KEYS
 
@@ -79,12 +67,12 @@ def is_stable_ping_game(exe_name: str | None) -> bool:
 
 
 def stable_ping_wifi_settings() -> dict[str, bool]:
-    """Return the conservative stable-ping Wi-Fi settings."""
+    """Return the stable-ping Wi-Fi settings."""
     return {key: key in VALORANT_WIFI_ENABLED_KEYS for key in WIFI_SETTING_KEYS}
 
 
 def cs2_wifi_settings() -> dict[str, bool]:
-    """Return the lighter CS2 Wi-Fi bundle."""
+    """Return the CS2 Wi-Fi settings."""
     return {key: key in CS2_WIFI_ENABLED_KEYS for key in WIFI_SETTING_KEYS}
 
 
@@ -101,15 +89,12 @@ def build_game_mode_plan(
     """
     Build the settings sections Game Mode should apply for *exe_name*.
 
-    Stable-ping games get a conservative Wi-Fi-only bundle. When no game is
-    running, Game Mode stays armed and applies nothing. Other detected games
-    keep the legacy configured-tab behavior for compatibility.
+    Stable-ping games are monitoring-only and apply nothing automatically.
+    When no game is running, Game Mode stays armed and applies nothing. Other
+    detected games keep the legacy configured-tab behavior for compatibility.
     """
     if is_stable_ping_game(exe_name):
-        if exe_name.lower() == "cs2.exe":
-            return {"wifi": cs2_wifi_settings()}
-        # Valorant and any other future conservative game.
-        return {"wifi": stable_ping_wifi_settings()}
+        return {}
 
     if not exe_name:
         return {}

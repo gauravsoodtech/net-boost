@@ -16,17 +16,12 @@ def test_valorant_detection_is_case_insensitive():
     assert is_stable_ping_game(None) is False
 
 
-def test_stable_ping_wifi_settings_enable_only_latency_safe_keys():
+def test_stable_ping_wifi_settings_are_monitoring_only_by_default():
     settings = stable_ping_wifi_settings()
 
     enabled = {key for key, value in settings.items() if value is True}
 
-    assert enabled == {
-        "disable_lso",
-        "disable_interrupt_mod",
-        "disable_power_saving",
-        "max_tx_power",
-    }
+    assert enabled == set()
     assert settings["minimize_roaming"] is False
     assert settings["prefer_6ghz"] is False
     assert settings["throughput_booster"] is False
@@ -34,7 +29,7 @@ def test_stable_ping_wifi_settings_enable_only_latency_safe_keys():
     assert settings["disable_mimo_power_save"] is False
 
 
-def test_valorant_game_mode_plan_excludes_tcp_dns_services_and_fps():
+def test_valorant_game_mode_plan_is_monitoring_only():
     plan = build_game_mode_plan(
         "VALORANT-Win64-Shipping.exe",
         current_wifi={"minimize_roaming": True, "throughput_booster": True},
@@ -48,8 +43,7 @@ def test_valorant_game_mode_plan_excludes_tcp_dns_services_and_fps():
         },
     )
 
-    assert set(plan) == {"wifi"}
-    assert plan["wifi"] == stable_ping_wifi_settings()
+    assert plan == {}
 
 
 def test_game_mode_plan_is_empty_when_no_game_is_running():

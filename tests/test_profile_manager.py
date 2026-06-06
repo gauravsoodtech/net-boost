@@ -69,16 +69,11 @@ class TestProfileManager:
             key for key, value in profile["wifi_optimizer"].items()
             if value is True and key != "enabled"
         }
-        assert wifi_enabled == {
-            "disable_lso",
-            "disable_interrupt_mod",
-            "disable_power_saving",
-            "max_tx_power",
-        }
+        assert wifi_enabled == set()
         assert profile["wifi_optimizer"].get("disable_mimo_power_save", False) is False
         assert profile["wifi_optimizer"].get("disable_bss_scan", False) is False
         assert profile["wifi_optimizer"].get("throughput_booster", False) is False
-        assert profile["wifi_optimizer"]["enabled"] is True
+        assert profile["wifi_optimizer"]["enabled"] is False
 
         # FPS Booster, Optimizer, and Background Killer are all OFF — Wi-Fi-only.
         assert profile["fps_boost"]["enabled"] is False
@@ -103,6 +98,12 @@ class TestProfileManager:
         manager.load_all()
 
         profile = manager.load_profile("CS2 Stable Ping")
+        wifi_enabled = {
+            key for key, value in profile["wifi_optimizer"].items()
+            if value is True and key != "enabled"
+        }
+        assert wifi_enabled == set()
+        assert profile["wifi_optimizer"]["enabled"] is False
         assert profile["wifi_optimizer"]["disable_mimo_power_save"] is False
         assert profile["wifi_optimizer"]["disable_bss_scan"] is False
 
@@ -238,16 +239,11 @@ class TestProfileManager:
             key for key, value in profile["wifi_optimizer"].items()
             if value is True and key != "enabled"
         }
-        assert wifi_enabled == {
-            "disable_lso",
-            "disable_interrupt_mod",
-            "disable_power_saving",
-            "max_tx_power",
-        }
+        assert wifi_enabled == set()
         assert profile["tcp_optimizer"]["enabled"] is False
         assert profile["dns"]["switch_dns"] is False
         assert profile["background_killer"]["pause_onedrive"] is False
-        assert profile["wifi_optimizer"]["enabled"] is True
+        assert profile["wifi_optimizer"]["enabled"] is False
         assert profile["fps_boost"]["enabled"] is False
 
     def test_default_profile_all_off(self, manager):

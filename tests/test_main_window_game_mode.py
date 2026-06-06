@@ -147,21 +147,29 @@ def _window_for_game_mode():
     return window
 
 
-def test_valorant_game_mode_applies_only_stable_ping_wifi_bundle():
-    from core.stable_ping_policy import stable_ping_wifi_settings
-
+def test_valorant_game_mode_is_monitoring_only():
     window = _window_for_game_mode()
+    pre_wifi = window.tab_wifi.get_settings()
 
     MainWindow._activate_game_mode(window, "VALORANT-Win64-Shipping.exe")
 
-    stable_wifi = stable_ping_wifi_settings()
-    window._apply_wifi.assert_called_once_with(stable_wifi)
+    window._apply_wifi.assert_not_called()
     window._apply_fps.assert_not_called()
     window._apply_optimizer.assert_not_called()
-    assert window._applied_settings == {"wifi": stable_wifi}
-    assert window.tab_wifi.marked == stable_wifi
-    assert window.tab_monitor.applied == {"wifi": stable_wifi}
-    assert window._gpu_temp_timer.started is False
+    assert window._applied_settings == {}
+    assert window._game_mode_applied is False
+    assert window._pre_game_mode_settings is None
+    assert window.tab_wifi.get_settings() == pre_wifi
+    assert window.tab_wifi.marked is None
+    assert window.tab_monitor.applied is None
+    window._set_status.assert_any_call(
+        "VALORANT Game Mode monitoring only - no Wi-Fi changes applied"
+    )
+    assert window._toast.messages[-1] == (
+        "VALORANT Game Mode monitoring only - Wi-Fi tweaks are manual",
+        "info",
+        None,
+    )
 
 
 def test_game_mode_without_running_game_does_not_apply_tab_settings():
@@ -176,93 +184,18 @@ def test_game_mode_without_running_game_does_not_apply_tab_settings():
     assert window._game_mode_applied is False
 
 
-def test_valorant_game_mode_does_not_mark_applied_when_wifi_adapter_missing():
+def test_monitoring_only_deactivate_has_nothing_to_restore():
     window = _window_for_game_mode()
-    window._apply_wifi.return_value = {
-        "_adapter_found": False,
-        "_write_count": 0,
-        "_verified_count": 0,
-        "_failed_count": 0,
-        "_failed_values": [],
-    }
 
     MainWindow._activate_game_mode(window, "VALORANT-Win64-Shipping.exe")
-
-    assert window._game_mode_applied is False
-    assert window._applied_settings == {}
-    assert window.tab_wifi.marked is None
-    assert window.tab_monitor.applied == {}
-    assert window._toast.messages[-1][1] == "warning"
-    window._set_status.assert_any_call(
-        "Game Mode: Wi-Fi failed: Wi-Fi adapter key not found - LSO may still be active. "
-        "Run as admin and confirm the adapter is supported."
-    )
-
-
-def test_failed_game_mode_deactivate_clears_pre_game_snapshot():
-    window = _window_for_game_mode()
-    window._apply_wifi.return_value = {
-        "_adapter_found": False,
-        "_write_count": 0,
-        "_verified_count": 0,
-        "_failed_count": 0,
-        "_failed_values": [],
-    }
-
-    MainWindow._activate_game_mode(window, "VALORANT-Win64-Shipping.exe")
-
-    assert window._game_mode_applied is False
-    assert window._pre_game_mode_settings is not None
-
     MainWindow._deactivate_game_mode(window)
 
-    assert window._pre_game_mode_settings is None
-
-
-def test_valorant_game_mode_does_not_mark_applied_when_no_wifi_write_confirmed():
-    window = _window_for_game_mode()
-    window._apply_wifi.return_value = {
-        "_adapter_found": True,
-        "_write_count": 2,
-        "_verified_count": 0,
-        "_failed_count": 2,
-        "_failed_values": [
-            {"name": "*LsoV2IPv4", "reason": "readback mismatch"},
-            {"name": "*LsoV2IPv6", "reason": "readback mismatch"},
-        ],
-    }
-
-    MainWindow._activate_game_mode(window, "VALORANT-Win64-Shipping.exe")
-
     assert window._game_mode_applied is False
+    assert window._pre_game_mode_settings is None
     assert window._applied_settings == {}
-    assert window.tab_wifi.marked is None
-    assert window._toast.messages[-1][1] == "warning"
 
 
-def test_valorant_game_mode_marks_partial_wifi_apply_as_warning():
-    window = _window_for_game_mode()
-    window._apply_wifi.return_value = {
-        "_adapter_found": True,
-        "_write_count": 2,
-        "_verified_count": 1,
-        "_failed_count": 1,
-        "_failed_values": [{"name": "*LsoV2IPv6", "reason": "readback mismatch"}],
-    }
-
-    MainWindow._activate_game_mode(window, "VALORANT-Win64-Shipping.exe")
-
-    assert window._game_mode_applied is True
-    assert "wifi" in window._applied_settings
-    assert window.tab_wifi.marked == window._applied_settings["wifi"]
-    assert window._toast.messages[-1] == (
-        "Wi-Fi partially applied: 1/2 values confirmed.",
-        "warning",
-        None,
-    )
-
-
-def test_game_mode_toggle_applies_when_valorant_already_running():
+def test_game_mode_toggle_detects_valorant_without_auto_applying():
     window = _window_for_game_mode()
     window.process_watcher = _DummyWatcher(["valorant-win64-shipping.exe"])
     window._game_mode_pending = True
@@ -273,5 +206,5 @@ def test_game_mode_toggle_applies_when_valorant_already_running():
     assert window._current_game == "valorant-win64-shipping.exe"
     assert window.tab_dashboard.detected_game == "valorant-win64-shipping.exe"
     assert window.tab_route.detected[0] == "valorant-win64-shipping.exe"
-    window._apply_wifi.assert_called_once()
-    assert window._game_mode_applied is True
+    window._apply_wifi.assert_not_called()
+    assert window._game_mode_applied is False

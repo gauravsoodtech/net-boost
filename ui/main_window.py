@@ -590,9 +590,17 @@ class MainWindow(QMainWindow):
 
         if not plan:
             self._game_mode_applied = False
+            if is_stable_ping_game(exe_name):
+                label = self._stable_ping_label(exe_name)
+                self._set_status(f"{label} Game Mode monitoring only - no Wi-Fi changes applied")
+                self._toast.show_message(
+                    f"{label} Game Mode monitoring only - Wi-Fi tweaks are manual",
+                    "info",
+                )
+                return
             self._set_status("Game Mode armed - waiting for a detected game")
             self._toast.show_message(
-                "Game Mode armed - launch VALORANT or CS2 to apply stable ping settings",
+                "Game Mode armed - launch VALORANT or CS2 to monitor without applying settings",
                 "info",
             )
             return
@@ -692,10 +700,6 @@ class MainWindow(QMainWindow):
             msg = warning_messages[0]
             self._set_status(msg)
             self._toast.show_message(msg, "warning")
-        elif is_stable_ping_game(exe_name):
-            label = self._stable_ping_label(exe_name)
-            self._set_status(f"{label} Stable Ping profile active")
-            self._toast.show_message(f"{label} Stable Ping profile applied", "success")
         else:
             self._toast.show_message("Game Mode: configured profile applied", "success")
 

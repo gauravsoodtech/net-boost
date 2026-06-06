@@ -28,6 +28,17 @@ _BASE_DIR = os.path.join(os.environ.get("APPDATA", os.path.expanduser("~")), "Ne
 _PROFILES_DIR = os.path.join(_BASE_DIR, "profiles")
 _ACTIVE_FILE = os.path.join(_BASE_DIR, "active_profile.txt")
 
+_PRE_MONITORING_WIFI_KEYS = frozenset({
+    "disable_lso",
+    "disable_interrupt_mod",
+    "disable_power_saving",
+    "max_tx_power",
+})
+_PRE_MONITORING_ALLOWED_EXTRA_WIFI_KEYS = frozenset({
+    "disable_bss_scan",
+    "disable_mimo_power_save",
+})
+
 
 def _ensure_dirs() -> None:
     os.makedirs(_PROFILES_DIR, exist_ok=True)
@@ -149,7 +160,7 @@ def _build_gaming_profile() -> dict:
     })
     p["ping_monitor"].update({"host": "1.1.1.1", "interval_ms": 500})
     p["wifi_optimizer"].update(stable_ping_wifi_settings())
-    p["wifi_optimizer"]["enabled"] = True
+    p["wifi_optimizer"]["enabled"] = False
     p["nvidia_optimizer"].update({
         "dynamic_pstate_off": False,
         "ull_mode": False,
@@ -167,21 +178,25 @@ def _build_valorant_stable_ping_profile() -> dict:
 
 
 def _build_cs2_stable_ping_profile() -> dict:
-    """CS2 Stable Ping is Wi-Fi-only by design, matching the CS2 Game Mode auto
-    plan: the conservative 4-key Wi-Fi bundle and nothing else. FPS Booster,
-    Optimizer, and QoS levers stay manual - the goal of Stable Ping Mode is
-    link-latency stability, not frame-rate or background tuning."""
+    """CS2 Stable Ping is monitoring-only by default. Driver-level Wi-Fi
+    toggles stay manual because automatic NIC registry writes can destabilize
+    some Intel adapter / router combinations."""
     p = _build_gaming_profile()
     p["name"] = "CS2 Stable Ping"
     p["game_list"] = ["cs2.exe"]
     p["wifi_optimizer"].update(cs2_wifi_settings())
-    p["wifi_optimizer"]["enabled"] = True
+    p["wifi_optimizer"]["enabled"] = False
     return p
 
 
 def _build_legacy_cs2_stable_ping_profile() -> dict:
     """Return the older CS2 built-in shape used only for safe migration."""
-    p = _build_cs2_stable_ping_profile()
+    p = _build_gaming_profile()
+    p["name"] = "CS2 Stable Ping"
+    p["game_list"] = ["cs2.exe"]
+    for key in _PRE_MONITORING_WIFI_KEYS:
+        p["wifi_optimizer"][key] = True
+    p["wifi_optimizer"]["enabled"] = True
     p["wifi_optimizer"].update({
         "disable_mimo_power_save": True,
         "disable_bss_scan": True,
@@ -268,25 +283,52 @@ def _seed_defaults() -> None:
 
 
 def _migrate_legacy_cs2_stable_ping_profile() -> None:
-    """Replace the exact old CS2 built-in with the lighter current default."""
-    name = "CS2 Stable Ping"
-    path = _profile_path(name)
-    if not os.path.isfile(path):
-        return
+    """Replace old auto-Wi-Fi built-ins with monitoring-only defaults."""
+    targets = {
+        "Gaming": _build_gaming_profile,
+        "VALORANT Stable Ping": _build_valorant_stable_ping_profile,
+        "CS2 Stable Ping": _build_cs2_stable_ping_profile,
+    }
 
-    try:
-        with open(path, "r", encoding="utf-8") as fh:
-            data = json.load(fh)
-    except (json.JSONDecodeError, OSError) as exc:
-        logger.warning("Skipping CS2 profile migration for '%s': %s", path, exc)
-        return
+    for name, factory in targets.items():
+        path = _profile_path(name)
+        if not os.path.isfile(path):
+            continue
 
-    data["name"] = name
-    if data != _build_legacy_cs2_stable_ping_profile():
-        return
+        try:
+            with open(path, "r", encoding="utf-8") as fh:
+                data = json.load(fh)
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning("Skipping profile migration for '%s': %s", path, exc)
+            continue
 
-    logger.info("Migrating built-in profile '%s' to lighter Wi-Fi defaults.", name)
-    _write_profile(name, _build_cs2_stable_ping_profile())
+        data["name"] = name
+        replacement = factory()
+        if not _is_pre_monitoring_wifi_builtin(data, replacement):
+            continue
+
+        logger.info("Migrating built-in profile '%s' to monitoring-only Wi-Fi defaults.", name)
+        _write_profile(name, replacement)
+
+
+def _is_pre_monitoring_wifi_builtin(profile: dict, replacement: dict) -> bool:
+    """Return True for old built-ins that only differ by auto-Wi-Fi defaults."""
+    for key, expected in replacement.items():
+        if key in {"wifi_optimizer", "system_tweaks"}:
+            continue
+        if profile.get(key) != expected:
+            return False
+
+    wifi = profile.get("wifi_optimizer") or {}
+    if wifi.get("enabled") is not True:
+        return False
+
+    true_keys = {
+        key for key, value in wifi.items()
+        if key != "enabled" and value is True
+    }
+    allowed = _PRE_MONITORING_WIFI_KEYS | _PRE_MONITORING_ALLOWED_EXTRA_WIFI_KEYS
+    return _PRE_MONITORING_WIFI_KEYS <= true_keys and true_keys <= allowed
 
 
 # ---------------------------------------------------------------------------

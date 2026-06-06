@@ -75,7 +75,7 @@ Fixes low-level TCP behavior and frees up bandwidth by pausing background servic
 |--------|-------------|
 | **Free RAM Now** | Forces background apps out of RAM so your game gets more memory |
 
-For VALORANT Stable Ping Mode, leave TCP, DNS, and service toggles off by default. Use this tab manually when monitoring shows a specific reason, and test one setting at a time.
+For VALORANT/CS2 Stable Ping Mode, leave Wi-Fi, TCP, DNS, and service toggles off by default. Use these tabs manually when monitoring shows a specific reason, and test one setting at a time.
 
 ---
 
@@ -174,8 +174,9 @@ Save and switch between different settings configurations.
 | **Set as Active** | Mark a profile as the default |
 
 **Built-in profiles:**
-- `VALORANT Stable Ping` - conservative automatic VALORANT profile.
-- `Gaming` - stable-ping defaults for general use.
+- `VALORANT Stable Ping` - monitoring-focused VALORANT profile.
+- `CS2 Stable Ping` - monitoring-focused CS2 profile.
+- `Gaming` - monitoring-focused defaults for general use.
 - `Work` - TCP/DNS-oriented profile for non-gaming use.
 - `Default` - everything OFF (clean baseline).
 
