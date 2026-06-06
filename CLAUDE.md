@@ -61,6 +61,7 @@ tests/                      # pytest unit tests + integration check script
 | `core/bandwidth_manager.py` | DSCP QoS registry + SetPriorityClass | `BandwidthManager` |
 | `core/ram_optimizer.py` | EmptyWorkingSet + file cache flush | `RamOptimizer` |
 | `core/route_analyzer.py` | tracert parser, bottleneck detection, game server discovery | `_TraceRouteWorker`, `_DiscoverWorker`, `mark_bottlenecks()` |
+| `core/network_diagnostics.py` | Honest leg-by-leg ping diagnostic (router / edge / game server) + plain-English verdict; pure logic, no Qt | `ping_target()`, `get_default_gateway()`, `find_active_server_ip()`, `build_verdict()` |
 | `core/system_tweaks.py` | Force MSI Mode (GPU + Wi-Fi NIC), disable NDU service, disable NetworkThrottlingIndex | `apply_msi_mode_all`, `disable_ndu_service`, `disable_network_throttling` (+ matching `restore_*`) |
 | `core/settings_risk.py` | Risk metadata for every toggle key (pure Python, no Qt) | `get_risk()`, `filter_by_level()` |
 | `core/adaptive_engine.py` | Converts telemetry windows into advisor recommendations; no system mutation | `AdaptiveEngine`, `AdaptiveRecommendation` |
@@ -549,3 +550,29 @@ All profile fields and their canonical keys (as of current schema):
 - `cancel()` sets `self._cancelled = True` and calls `self._proc.terminate()`
 - After loop, checks `if self._cancelled: return` — `finished` signal is NOT emitted on cancel
 - `_on_trace_clicked` cancels any in-progress worker before starting a new one
+
+**Diagnose Ping (honest leg-by-leg diagnostic):**
+The "Diagnose Ping" button answers "why is my in-game ping bad when 1.1.1.1 is fine?"
+by measuring each leg of the path separately and printing a plain-English verdict —
+because NetBoost's Wi-Fi registry tweaks can only affect the *local link*, never the
+route to the game server.
+- `core/network_diagnostics.py` (pure, no Qt): `get_default_gateway()` (parses
+  `route print -4`, lowest-metric default route), `ping_target(host, count)` (parses
+  `ping.exe` → `{avg/min/max/jitter/loss, reachable}`), `find_active_server_ip(pid)`
+  (tries `route_analyzer.discover_game_server` then falls back to a system-wide
+  `netstat -n` ESTABLISHED-TCP scan — still returns `None` for Vanguard-protected UDP
+  games, which the verdict handles), `build_verdict(gateway, edge, server, hops)`
+  (classifies which leg is at fault).
+- `_DiagnoseWorker` (QRunnable in `ui/tab_route.py`) runs the sequence off the Qt
+  thread: gateway ping → edge ping (`EDGE_HOST = 1.1.1.1`) → server discovery/ping →
+  `route_analyzer.trace_route` → `build_verdict`. Emits `progress(str)` per step and
+  `finished(dict)`. **Lives in `tab_route.py`, NOT `network_diagnostics.py`** — keeps
+  the core module Qt-free and avoids a circular import (`network_diagnostics` imports
+  `route_analyzer`).
+- Verdict branches: bad gateway → local Wi-Fi (the one case the Wi-Fi tab can help);
+  good gateway + bad edge → ISP first mile; good gateway/edge + bad server/bottleneck →
+  route to the game server (server region / ISP peering — not fixable locally); server
+  unmeasurable → ask for manual IP; all healthy → likely transient bufferbloat from
+  background apps. The verdict explicitly states when NetBoost cannot fix it.
+- `find_active_server_ip` reuses the PID `TabRoute` already stores from
+  `on_game_detected` — no MainWindow change needed.

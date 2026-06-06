@@ -13,7 +13,9 @@ from PyQt5.QtWidgets import (
     QTableWidget, QTableWidgetItem,
     QHeaderView, QFrame, QAbstractItemView,
 )
-from PyQt5.QtCore import Qt, QTimer, QThreadPool, pyqtSignal, pyqtSlot
+from PyQt5.QtCore import (
+    Qt, QTimer, QThreadPool, QRunnable, QObject, pyqtSignal, pyqtSlot,
+)
 from PyQt5.QtGui import QColor, QBrush
 
 from ui.widgets.status_led import AnimatedLED
@@ -39,6 +41,63 @@ _COLOR_FG_OK          = QColor("#4caf50")
 _MAX_DISCOVER_RETRIES = 2
 
 
+class _DiagnoseWorkerSignals(QObject):
+    progress = pyqtSignal(str)    # human-readable status while the diagnostic runs
+    finished = pyqtSignal(dict)   # {gateway, edge, server, server_ip, hops, verdict}
+
+
+class _DiagnoseWorker(QRunnable):
+    """
+    Runs the honest leg-by-leg ping diagnostic off the Qt thread:
+    router (gateway) → internet edge (1.1.1.1) → game server → traceroute,
+    then builds a plain-English verdict.
+
+    Each ``ping_target`` / ``trace_route`` call is blocking, so this MUST run on
+    a worker thread (never the Qt main thread).
+    """
+
+    def __init__(self, signals: "_DiagnoseWorkerSignals", pid: int, manual_ip: str = ""):
+        super().__init__()
+        self.signals = signals
+        self.pid = pid
+        self.manual_ip = manual_ip.strip()
+        self.setAutoDelete(True)
+
+    def run(self) -> None:
+        from core import network_diagnostics as nd
+        from core.route_analyzer import trace_route
+
+        self.signals.progress.emit("Pinging your router…")
+        gateway_ip = nd.get_default_gateway()
+        gateway_res = nd.ping_target(gateway_ip) if gateway_ip else None
+
+        self.signals.progress.emit(f"Pinging the internet edge ({nd.EDGE_HOST})…")
+        edge_res = nd.ping_target(nd.EDGE_HOST)
+
+        self.signals.progress.emit("Finding the game server…")
+        server_ip = self.manual_ip or nd.find_active_server_ip(self.pid or None)
+
+        server_res = None
+        hops: list = []
+        if server_ip:
+            self.signals.progress.emit(f"Pinging the game server ({server_ip})…")
+            server_res = nd.ping_target(server_ip)
+            self.signals.progress.emit(f"Tracing route to {server_ip}…")
+            hops = trace_route(server_ip)
+
+        verdict = nd.build_verdict(gateway_res, edge_res, server_res, hops)
+
+        self.signals.finished.emit({
+            "gateway": gateway_res,
+            "gateway_ip": gateway_ip,
+            "edge": edge_res,
+            "server": server_res,
+            "server_ip": server_ip,
+            "hops": hops,
+            "verdict": verdict,
+        })
+
+
 class TabRoute(QWidget):
     """
     Route Analyzer tab.
@@ -61,6 +120,7 @@ class TabRoute(QWidget):
         self._current_worker = None        # _TraceRouteWorker or None
         self._discover_signals = None
         self._trace_signals = None
+        self._diagnose_signals = None      # _DiagnoseWorkerSignals or None
         self._build_ui()
 
     # ──────────────────────────────────────────────────────── UI construction ──
@@ -102,8 +162,18 @@ class TabRoute(QWidget):
         btn_row = QHBoxLayout()
         btn_row.setSpacing(8)
 
+        self._diagnose_btn = QPushButton("Diagnose Ping")
+        self._diagnose_btn.setObjectName("primaryButton")
+        self._diagnose_btn.setFixedWidth(140)
+        self._diagnose_btn.setToolTip(
+            "Measure each leg of the path — router, internet edge, and game "
+            "server — and explain where your ping is actually coming from."
+        )
+        self._diagnose_btn.clicked.connect(self._on_diagnose_clicked)
+        btn_row.addWidget(self._diagnose_btn)
+
         self._trace_btn = QPushButton("Trace Route")
-        self._trace_btn.setObjectName("primaryButton")
+        self._trace_btn.setObjectName("secondaryButton")
         self._trace_btn.setFixedWidth(120)
         self._trace_btn.clicked.connect(self._on_trace_clicked)
         btn_row.addWidget(self._trace_btn)
@@ -121,6 +191,29 @@ class TabRoute(QWidget):
         btn_row.addWidget(self._manual_ip_input)
 
         layout.addLayout(btn_row)
+
+        # ── Diagnosis panel (legs + plain-English verdict) ─────────────────────
+        diag_frame = QFrame()
+        diag_frame.setObjectName("routeSummaryFrame")
+        diag_layout = QVBoxLayout(diag_frame)
+        diag_layout.setContentsMargins(14, 10, 14, 10)
+        diag_layout.setSpacing(6)
+
+        self._legs_label = QLabel("")
+        self._legs_label.setObjectName("dimLabel")
+        self._legs_label.setTextFormat(Qt.RichText)
+        self._legs_label.hide()
+        diag_layout.addWidget(self._legs_label)
+
+        self._verdict_label = QLabel(
+            "Click “Diagnose Ping” to find out where your latency is actually "
+            "coming from — your Wi-Fi, your ISP, or the route to the game server."
+        )
+        self._verdict_label.setObjectName("dimLabel")
+        self._verdict_label.setWordWrap(True)
+        diag_layout.addWidget(self._verdict_label)
+
+        layout.addWidget(diag_frame)
 
         # ── Hop table ──────────────────────────────────────────────────────────
         self._table = QTableWidget(0, 6)
@@ -333,6 +426,68 @@ class TabRoute(QWidget):
         self._trace_btn.setEnabled(True)
         self._trace_btn.setText("Trace Route")
         self._summary_label.setText(f"Error: {message}")
+
+    # ──────────────────────────────────────────────────── Diagnose Ping ──
+
+    @pyqtSlot()
+    def _on_diagnose_clicked(self) -> None:
+        """Run the honest leg-by-leg ping diagnostic and show a verdict."""
+        manual_ip = self._manual_ip_input.text().strip() or (self._detected_server_ip or "")
+
+        self._diagnose_btn.setEnabled(False)
+        self._diagnose_btn.setText("Diagnosing…")
+        self._legs_label.hide()
+        self._verdict_label.setText("Running diagnostic — this takes ~10–20s…")
+
+        self._diagnose_signals = _DiagnoseWorkerSignals()
+        self._diagnose_signals.progress.connect(self._on_diagnose_progress)
+        self._diagnose_signals.finished.connect(self._on_diagnose_finished)
+
+        worker = _DiagnoseWorker(self._diagnose_signals, self._game_pid, manual_ip)
+        QThreadPool.globalInstance().start(worker)
+
+    @pyqtSlot(str)
+    def _on_diagnose_progress(self, message: str) -> None:
+        self._verdict_label.setText(message)
+
+    @pyqtSlot(dict)
+    def _on_diagnose_finished(self, result: dict) -> None:
+        self._diagnose_btn.setEnabled(True)
+        self._diagnose_btn.setText("Diagnose Ping")
+
+        # Build the per-leg one-liner.
+        from core import network_diagnostics as nd
+
+        def _leg(name: str, res, ip=None) -> str:
+            tag = f"{name}"
+            if ip:
+                tag += f" ({ip})"
+            return f"<b>{tag}:</b> {nd._leg_label(res)}"
+
+        parts = [_leg("Router", result.get("gateway"), result.get("gateway_ip"))]
+        parts.append(_leg("Internet edge", result.get("edge"), nd.EDGE_HOST))
+        if result.get("server_ip"):
+            parts.append(_leg("Game server", result.get("server"), result.get("server_ip")))
+        else:
+            parts.append("<b>Game server:</b> not found")
+        self._legs_label.setText("&nbsp;&nbsp;•&nbsp;&nbsp;".join(parts))
+        self._legs_label.show()
+
+        self._verdict_label.setText(result.get("verdict", ""))
+
+        # Populate the hop table from the diagnostic's traceroute, if any.
+        hops = result.get("hops") or []
+        if hops:
+            self._table.setRowCount(0)
+            for idx, hop in enumerate(hops):
+                self._on_hop_found(hop)
+                self._color_row(idx, hop)
+            server_ip = result.get("server_ip") or ""
+            self._summary_label.setText(
+                f"Route to {server_ip}: {len(hops)} hops (see verdict above)."
+            )
+            if server_ip and not self._manual_ip_input.text().strip():
+                self._manual_ip_input.setText(server_ip)
 
     # ──────────────────────────────────────────────────────── Row coloring ──
 
