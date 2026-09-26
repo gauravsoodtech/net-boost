@@ -25,7 +25,7 @@
 
 Playing Valorant or CS2 on a gaming laptop over Wi-Fi? You've probably seen this:
 
-- 🔴 **200–500ms ping spikes** out of nowhere (Intel Wi-Fi power saving kicking in)
+- 🔴 **200-500ms ping spikes** out of nowhere (Intel Wi-Fi power saving kicking in)
 - 🔴 **FPS drops and stutters** mid-game (Windows timer resolution, E-core scheduling)
 - 🔴 **Background apps eating bandwidth** (Windows Update downloading mid-match)
 - 🔴 **GPU clocks dropping** between frames (dynamic P-states on laptop GPUs)
@@ -36,8 +36,8 @@ NetBoost fixes all of it with one click.
 
 ## Features
 
-### 📶 Wi-Fi Optimizer — Kills Ping Spikes
-The Intel AX211 aggressively power-saves and background-scans by default, causing random 200–500ms spikes. NetBoost disables this at the driver registry level:
+### 📶 Wi-Fi Optimizer: Kills Ping Spikes
+The Intel AX211 aggressively power-saves and background-scans by default, causing random 200-500ms spikes. NetBoost disables this at the driver registry level:
 
 Stable Ping Mode for VALORANT and CS2 is monitoring-only by default. Wi-Fi, TCP, DNS, service, and FPS tweaks stay manual so NetBoost does not destabilize the adapter automatically.
 
@@ -66,7 +66,7 @@ For VALORANT/CS2 Stable Ping Mode, TCP, DNS, service controls, and Wi-Fi driver 
 
 - **TCP tweaks** (`TCPNoDelay`, `TcpAckFrequency`, window scaling) are system-wide TCP changes and do not target VALORANT's UDP gameplay traffic.
 - **DNS switch** to Cloudflare (1.1.1.1), Google (8.8.8.8), Quad9 (9.9.9.9), or OpenDNS. DNS can improve lookup speed, but it does not stabilize packets after a match connection is established.
-- **DSCP QoS marking** — marks game traffic as Expedited Forwarding (DSCP 46)
+- **DSCP QoS marking**: marks game traffic as Expedited Forwarding (DSCP 46)
 
 ### 🔇 Background Killer
 - Manual advanced option to pause **Windows Update**, **OneDrive**, **BITS**, or telemetry during a session
@@ -75,19 +75,19 @@ For VALORANT/CS2 Stable Ping Mode, TCP, DNS, service controls, and Wi-Fi driver 
 
 ### 📊 Live Monitor
 - Real-time ping/jitter/packet loss graph (PyQtGraph, 60s rolling window)
-- Dashboard badges update live every ~500ms — shows "--" when offline instead of a false 0.0
+- Dashboard badges update live every ~500ms and shows "--" when offline instead of a false 0.0
 - Free RAM badge refreshes every 5 seconds; game processes highlighted green in Bandwidth tab
 - Wi-Fi **Test Latency** button runs async (no UI freeze) and shows Before → After ms
-- Auto game detection — activates in **<1.5 seconds** of game launch
+- Auto game detection: activates in **<1.5 seconds** of game launch
 - System tray: grey (idle) → yellow (game detected) → green (optimized)
 
 ### 🗺️ Route Analyzer
-Diagnoses which network hop is causing mid-match ping spikes — without needing a VPN:
+Diagnoses which network hop is causing mid-match ping spikes, without needing a VPN:
 
 | Feature | Detail |
 |---------|--------|
 | **Auto server detection** | Reads live connections of the game process to find its server IP |
-| **Ping re-targeting** | Once game server IP is found, the Dashboard ping monitor switches from 1.1.1.1 to the actual game server — showing real in-game latency |
+| **Ping re-targeting** | Once game server IP is found, the Dashboard ping monitor switches from 1.1.1.1 to the actual game server, showing real in-game latency |
 | **Live hop table** | Populates row-by-row as `tracert` streams output |
 | **Bottleneck highlighting** | Hops with >15ms jump from previous amber; timeouts red |
 | **Summary line** | Reports exact hop number and latency delta for each bottleneck |
@@ -103,7 +103,7 @@ NetBoost actively watches for signs that your applied settings are causing probl
 | **FPS drops after 10 min** | GPU temp ≥85°C while `NVIDIA Maximum Performance` is on → warns about thermal throttling |
 | **Pre-apply risk warning** | Before applying HIGH/MEDIUM risk settings, a modal lists the risk and advice |
 | **Health Diagnostics panel** | Monitor tab shows every active setting with a color-coded risk badge (🟢/🟡/🔴) and a live alert log |
-| **Quick-disable** | Alert rows include a `[Disable <setting>]` button — one click unchecks the culprit without leaving the Monitor tab |
+| **Quick-disable** | Alert rows include a `[Disable <setting>]` button: one click unchecks the culprit without leaving the Monitor tab |
 | **LSO apply failure** | If the Intel Wi-Fi adapter key can't be found, a warning toast fires instead of silently showing ✓ Applied |
 
 ### Adaptive Advisor
@@ -121,7 +121,7 @@ Recommendations appear in the Monitor tab with **Apply** and **Dismiss** actions
 All changes tracked in an atomic state file. If NetBoost crashes mid-session, it **automatically restores your original settings** on next launch.
 
 ### ✨ Visual Feedback
-- Apply buttons flash **green ✓** on success and **red ✗** on error, then revert — no silent failures
+- Apply buttons flash **green ✓** on success and **red ✗** on error, then revert, so there are no silent failures
 - Floating toast notifications appear top-right for every apply action (success / error / info / **warning**)
 - Polished dark theme: gradient buttons, tab underline indicator, focus glows on inputs, thin rounded scrollbars
 
@@ -159,7 +159,7 @@ pip install -r requirements.txt
 python main.py
 ```
 
-A UAC prompt will appear — click **Yes**. NetBoost requires admin to modify network and system settings.
+A UAC prompt will appear. Click **Yes**. NetBoost requires admin to modify network and system settings.
 
 ### Build Standalone `.exe`
 
@@ -262,15 +262,15 @@ netboost/
 ## How It Works
 
 ### The Wi-Fi Spike Fix (Most Important)
-Intel's AX211 driver uses aggressive power saving by default — it parks the radio between packets to save battery. This causes 200–500ms spikes whenever a packet arrives after a brief idle period. NetBoost writes directly to the driver's registry key under `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-...}` to disable this behavior while the app is running.
+Intel's AX211 driver uses aggressive power saving by default: it parks the radio between packets to save battery. This causes 200-500ms spikes whenever a packet arrives after a brief idle period. NetBoost writes directly to the driver's registry key under `HKLM\SYSTEM\CurrentControlSet\Control\Class\{4D36E972-...}` to disable this behavior while the app is running.
 
 Recent Intel drivers expose some adapter settings under newer registry keywords such as `RoamingPreferredBandType`, `IbssTxPower`, `ThroughputBoosterEnabled`, and `MIMOPowerSaveMode`. NetBoost handles those current names and keeps legacy keyword fallbacks for older driver packages.
 
 ### P-Core Affinity
-The i7-13650HX has 6 Performance cores (threads 0–11) and 8 Efficiency cores (threads 12–19). Windows sometimes schedules game threads on E-cores, causing stutters. NetBoost uses `SetProcessAffinityMask` to pin the game process to P-cores only (`0x0FFF`).
+The i7-13650HX has 6 Performance cores (threads 0-11) and 8 Efficiency cores (threads 12-19). Windows sometimes schedules game threads on E-cores, causing stutters. NetBoost uses `SetProcessAffinityMask` to pin the game process to P-cores only (`0x0FFF`).
 
 ### Timer Resolution
-Windows default timer fires every 15.6ms, causing uneven frame delivery. NetBoost calls `NtSetTimerResolution(5000)` to force 0.5ms resolution — the same technique used by CS2 and other competitive titles internally.
+Windows default timer fires every 15.6ms, causing uneven frame delivery. NetBoost calls `NtSetTimerResolution(5000)` to force 0.5ms resolution, the same technique used by CS2 and other competitive titles internally.
 
 ### Crash Recovery
 Before every destructive operation, the original value is written to `%APPDATA%\NetBoost\state.json` via atomic write (`os.replace`). On startup, if a state file exists with a dead PID, all settings are auto-restored.
@@ -279,10 +279,10 @@ Before every destructive operation, the original value is written to `%APPDATA%\
 
 ## Safety
 
-- **No kernel drivers** — all tweaks use documented Windows APIs (registry, netsh, win32service)
-- **Anti-cheat safe** — only uses `SetPriorityClass` and `SetProcessAffinityMask`, no process injection
-- **Auto-restore on exit** — every change is reversed cleanly when the app closes
-- **Crash recovery** — atomic state file ensures nothing stays modified after a crash
+- **No kernel drivers**: all tweaks use documented Windows APIs (registry, netsh, win32service)
+- **Anti-cheat safe**: only uses `SetPriorityClass` and `SetProcessAffinityMask`, no process injection
+- **Auto-restore on exit**: every change is reversed cleanly when the app closes
+- **Crash recovery**: atomic state file ensures nothing stays modified after a crash
 
 ---
 
@@ -333,7 +333,7 @@ The original codebase (~9,500 lines across 45 files) was generated in a single s
 
 > **My role:** Defined the problem (Wi-Fi ping spikes on my gaming laptop), specified the target hardware (i7-13650HX, RTX 4060, Intel AX211), described the desired UX, and reviewed the output. Claude handled the original research, implementation, and wiring; Codex helped refine the stable-ping behavior and documentation.
 
-This is an example of **vibe coding** at scale — using AI to implement a technically deep, Windows-specific tool that would have taken weeks to build manually.
+This is an example of **vibe coding** at scale, using AI to implement a technically deep, Windows-specific tool that would have taken weeks to build manually.
 
 ---
 
@@ -351,7 +351,7 @@ See `CLAUDE.md` for detailed architecture notes and contribution guidelines.
 
 ## License
 
-MIT License — see [LICENSE](LICENSE) for details.
+MIT License. See [LICENSE](LICENSE) for details.
 
 ---
 
