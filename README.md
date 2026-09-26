@@ -333,7 +333,7 @@ The original codebase (~9,500 lines across 45 files) was generated in a single s
 
 > **My role:** Defined the problem (Wi-Fi ping spikes on my gaming laptop), specified the target hardware (i7-13650HX, RTX 4060, Intel AX211), described the desired UX, and reviewed the output. Claude handled the original research, implementation, and wiring; Codex helped refine the stable-ping behavior and documentation.
 
-This is an example of **vibe coding** at scale, using AI to implement a technically deep, Windows-specific tool that would have taken weeks to build manually.
+I'm upfront about this because it's how I work: the AI writes code fast, and my job is to know exactly what the problem is, test the result on the real hardware it was built for, and decide what ships.
 
 ---
 
